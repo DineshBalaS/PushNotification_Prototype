@@ -10,6 +10,11 @@ from app.core.exceptions import (
 from contextlib import asynccontextmanager
 from app.db.database import connect_to_mongo, close_mongo_connection
 
+from app.routers.tokens import router as tokens_router
+from app.routers.appointments import router as appointments_router
+from app.routers.notifications import router as notifications_router
+from app.routers.doctors import router as doctors_router
+
 # Initialize structured logging
 logger = setup_logger()
 logger.info("Initializing Push Notification Prototype Backend...")
@@ -41,6 +46,12 @@ app.add_middleware(
 # Mount global exception handlers to strictly adhere to formatting constraints
 app.add_exception_handler(AppException, global_app_exception_handler)
 app.add_exception_handler(Exception, global_unhandled_exception_handler)
+
+# Securely inject external routers mapping strictly to the internal API tree
+app.include_router(tokens_router)
+app.include_router(appointments_router)
+app.include_router(notifications_router)
+app.include_router(doctors_router)
 
 @app.get("/health")
 async def health_check():
