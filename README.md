@@ -1,8 +1,8 @@
 # Dental Appointment Push Notification Prototype
 
-A decoupled, real-time push notification prototype engineered to securely route appointment updates from a staff dashboard to both Doctors and Patients.
+A decoupled, real-time alert prototype automating the booking pipeline between Patients and Internal Staff.
 
-This project is built as a **Monorepo** consisting of three strictly isolated environments: a Python API, a Next.js web trigger, and a Bare React Native mobile application.
+This project is built as a **Monorepo** consisting of three strictly isolated environments: a Python API, a Next.js web console, and a Bare React Native mobile application for internal broadcasting.
 
 ## 🏗 Architecture & Tech Stack
 
@@ -12,45 +12,25 @@ This project is built as a **Monorepo** consisting of three strictly isolated en
 - **Database:** MongoDB (using `motor` for async operations)
 - **Data Integrity:** Strict Type Hinting via Pydantic
 - **Push Gateway:** Firebase Admin SDK (FCM)
-- **Role:** Handles device token registration, notification history storage (`NotificationInbox`), and dispatches data-only Firebase payloads by querying a unified `Users` collection.
+- **Router Model:** Instead of modifying core user collections, pushes route seamlessly through a decoupled `DeviceTokens` registry.
 
 ### 2. The Web Dashboard (`/web-app`)
 
 - **Framework:** Next.js (App Router) with Strict TypeScript
 - **Styling:** Tailwind CSS v4
-- **Role:** A simple web interface simulating a Staff/Receptionist action. It triggers the `POST /notify/appointment-approved` endpoint, passing target user IDs to the backend.
+- **Role:** Houses the Patient Booking Widget, the Central Staff Approval Console, and Dropdown Notification visualizers.
 
-### 3. The Mobile App (`/mobile-app`)
+### 3. The Internal Mobile App (`/mobile-app`)
 
 - **Framework:** Bare React Native CLI (TypeScript)
-- **Styling:** NativeWind (Tailwind mapped to React Native stylesheets)
-- **Push Handlers:**
-  - `@react-native-firebase/messaging` (Listens for silent FCM data payloads)
-  - `@notifee/react-native` (Renders custom, high-fidelity local notifications)
-- **Role:** Handles OS push permissions, registers tokens to the backend, securely renders lock-screen notifications, and features an in-app Notification Center (Bell icon).
+- **Styling:** NativeWind
+- **Push Handlers:** `@react-native-firebase/messaging` & `@notifee/react-native`
+- **Role:** A secure, internal-only app for Staff and Doctors providing high-fidelity lock-screen push notifications and an in-app history Bell endpoint.
 
-## 🚀 Core Features & UX
+## 🚀 Core Booking Flow & UX
 
-- **Multi-Role Dispatching:** A single staff click on the Web Dashboard securely routes notifications to _both_ the corresponding Patient and the assigned Doctor.
-- **Lock-Screen Privacy:** Enforces OS-level privacy flags (`visibility: private`). Lock screens show a generic title (e.g., "You're All Set! 🦷") and safely hide private appointment details until the user biometrically unlocks their device.
-- **Soft-Prompt Onboarding:** Educates the user on the value of notifications _before_ triggering the native iOS/Android permission modal.
-- **SMS Fallback Protocol:** If a user denies native push permissions, the backend flags their MongoDB profile (`requires_sms_fallback: true`) for alternative tracking.
-- **Persistent Inbox:** Users can browse their notification history within the app via a paginated `FlatList` fetching from the backend.
-
-## 📂 Data Flow Blueprint
-
-1. **Trigger:** Web app fires `POST /notify/appointment-approved`.
-2. **Storage:** FastAPI logs the notification details into the `NotificationInbox` collection.
-3. **Dispatch:** FastAPI queries the unified `Users` collection, grabs the `fcm_tokens` arrays for the Patient and Doctor, and dispatches an FCM payload.
-4. **Delivery:** The React Native app intercepts the Firebase payload in the background/foreground.
-5. **Rendering:** Notifee processes the payload and triggers a secure local notification on the user's device.
-
-## 🛠 Project Constraints
-
-- **Strict Isolation:** Code from `/web-app` (e.g., HTML `<div>`) and `/mobile-app` (e.g., React Native `<View>`) must never bleed into each other.
-- **No Relational SQL:** The database strictly leverages MongoDB document schemas without Prisma/SQLAlchemy.
-- **Bare Native Elements:** Modifying `Podfile`, `build.gradle`, and `AndroidManifest.xml` is required for Notifee and Firebase integrations.
-
----
-
-_This repository is strictly a prototype. As such, authentication is bypassed using a simulated "role" assignment, prioritizing the core notification pipeline and data flow._
+1. **The Request:** A patient submits an appointment via the lightweight Web Widget. The appointment state logs as "Pending".
+2. **The Approval:** A single Staff member clicks "Approve" on their Desktop Console. A local success Toast instantly confirms their action.
+3. **The Patient Reply:** The FastAPI backend securely triggers a mocked external SMS/WhatsApp/Email response to the Patient.
+4. **The Internal Broadcast:** The backend queries the standalone `DeviceTokens` registry for everyone registered as a Doctor or Staff member, and broadcasts a mass data-payload to their mobile devices.
+5. **The Safe Delivery:** Notifee processes the incoming Firebase payload entirely inside the Mobile OS, displaying a "Private" localized notification respecting biometric lock-screen security.
