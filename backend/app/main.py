@@ -7,15 +7,26 @@ from app.core.exceptions import (
     global_app_exception_handler, 
     global_unhandled_exception_handler
 )
+from contextlib import asynccontextmanager
+from app.db.database import connect_to_mongo, close_mongo_connection
 
 # Initialize structured logging
 logger = setup_logger()
 logger.info("Initializing Push Notification Prototype Backend...")
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup actions
+    await connect_to_mongo()
+    yield
+    # Shutdown actions
+    await close_mongo_connection()
+
 app = FastAPI(
     title="Push Notification Prototype API",
     description="Decoupled API for handling real-time push routing.",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan
 )
 
 # Configure explicit CORS logic reading from our secure .env
