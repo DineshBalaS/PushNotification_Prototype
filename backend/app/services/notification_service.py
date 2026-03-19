@@ -17,17 +17,17 @@ async def send_mock_patient_sms(patient_id: str, message: str) -> bool:
         logger.error(f"[FAILED: Mock SMS Dispatch] Network execution error on patient {patient_id}: {e}", exc_info=True)
         return False
 
-async def dispatch_internal_push(owner_ids: List[str], title: str, body: str) -> bool:
+async def dispatch_internal_push(fcm_tokens: List[str], title: str, body: str) -> bool:
     """
     Clean proxy method for executing native Firebase FCM Broadcasts in Phase 5 dynamically. 
     Uses isolated try-catches to secure primary APIs against downstream credential timeouts.
     """
     try:
-        if not owner_ids:
+        if not fcm_tokens:
             logger.info("Internal Push aborted gracefully: No target mapped recipient FCM tokens.")
             return False
             
-        logger.info(f"Booting Firebase routing payload to {len(owner_ids)} user(s).")
+        logger.info(f"Booting Firebase routing payload to {len(fcm_tokens)} target device(s).")
         logger.info(f"FCM Data Transmission Dump -> [Title: '{title}' | Body: '{body}']")
         
         # NOTE: Native phase 5 firebase integrations inject their dependencies right here.
