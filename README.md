@@ -1,36 +1,27 @@
-# Dental Appointment Push Notification Prototype
+# Dental Appointment Push Notifications (Prototype)
 
-A decoupled, real-time alert prototype automating the booking pipeline between Patients and Internal Staff.
+Monorepo for appointment-driven push notifications:
+- **Backend (`/backend`)**: FastAPI + async MongoDB (Motor) + Firebase Admin (FCM)
+- **Mobile (`/mobile-app`)**: React Native app that receives FCM and shows an in-app “Inbox”
+- **Web (`/web-app`)**: Next.js scaffold (currently template-only)
 
-This project is built as a **Monorepo** consisting of three strictly isolated environments: a Python API, a Next.js web console, and a Bare React Native mobile application for internal broadcasting.
+## What happens (FCM flow)
+1. Mobile registers its **FCM token** to the backend: `PATCH /api/v1/providers/me/fcm-token`
+2. When an appointment is created or its status changes, the backend enqueues **FCM sends** (via FastAPI `BackgroundTasks`).
+3. Mobile handles messages in:
+   - **Foreground**: `onMessage(...)` → store + toast
+   - **Background/quit-state**: `setBackgroundMessageHandler(...)` → store (MMKV) for the Inbox
 
-## 🏗 Architecture & Tech Stack
+## Backend endpoints (current)
+- `GET /health` → `{"status":"ok","version":"2.0.0"}`
+- `POST /api/v1/appointments/` (creates appointment, sends “New Appointment Request” to doctor + staff tokens)
+- `PATCH /api/v1/appointments/{appointment_id}/status` (atomic status update, notifies assigned doctor)
+- `PATCH /api/v1/providers/me/fcm-token` (stores `glenogi_fcm_token` on provider document)
 
-### 1. The Backend (`/backend`)
+## Run locally (quick)
+- Backend: `uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload` (from `/backend`)
+- Mobile: update `mobile-app/src/config/api.ts` (`API_BASE_URL`) to your dev machine IP, then run the RN app normally.
 
-- **Framework:** FastAPI (Python 3.x)
-- **Database:** MongoDB (using `motor` for async operations)
-- **Data Integrity:** Strict Type Hinting via Pydantic
-- **Push Gateway:** Firebase Admin SDK (FCM)
-- **Router Model:** Instead of modifying core user collections, pushes route seamlessly through a decoupled `DeviceTokens` registry.
-
-### 2. The Web Dashboard (`/web-app`)
-
-- **Framework:** Next.js (App Router) with Strict TypeScript
-- **Styling:** Tailwind CSS v4
-- **Role:** Houses the Patient Booking Widget, the Central Staff Approval Console, and Dropdown Notification visualizers.
-
-### 3. The Internal Mobile App (`/mobile-app`)
-
-- **Framework:** Bare React Native CLI (TypeScript)
-- **Styling:** NativeWind
-- **Push Handlers:** `@react-native-firebase/messaging` & `@notifee/react-native`
-- **Role:** A secure, internal-only app for Staff and Doctors providing high-fidelity lock-screen push notifications and an in-app history Bell endpoint.
-
-## 🚀 Core Booking Flow & UX
-
-1. **The Request:** A patient submits an appointment via the lightweight Web Widget. The appointment state logs as "Pending".
-2. **The Approval:** A single Staff member clicks "Approve" on their Desktop Console. A local success Toast instantly confirms their action.
-3. **The Patient Reply:** The FastAPI backend securely triggers a mocked external SMS/WhatsApp/Email response to the Patient.
-4. **The Internal Broadcast:** The backend queries the standalone `DeviceTokens` registry for everyone registered as a Doctor or Staff member, and broadcasts a mass data-payload to their mobile devices.
-5. **The Safe Delivery:** Notifee processes the incoming Firebase payload entirely inside the Mobile OS, displaying a "Private" localized notification respecting biometric lock-screen security.
+## Prototype notes
+- Auth is a **stub** in the backend (prototype only).
+- Push delivery is **FCM-only** in the current implementation.
