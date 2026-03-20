@@ -12,6 +12,24 @@ Monorepo for appointment-driven push notifications:
    - **Foreground**: `onMessage(...)` → store + toast
    - **Background/quit-state**: `setBackgroundMessageHandler(...)` → store (MMKV) for the Inbox
 
+## Backend: Install & Run
+1. Ensure MongoDB is running locally at `mongodb://localhost:27017`.
+2. Configure environment variables in `backend/.env`:
+   - `MONGODB_URL`
+   - `MONGODB_DB_NAME`
+   - `FIREBASE_CREDENTIALS_PATH` (expects `backend/firebase-service-account.json`)
+3. Install dependencies:
+   ```powershell
+   cd backend
+   py -m venv .venv
+   .\.venv\Scripts\Activate.ps1
+   pip install -r requirements.txt
+   ```
+4. Start the API (FastAPI via Uvicorn):
+   ```powershell
+   uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+   ```
+
 ## Backend endpoints (current)
 - `GET /health` → `{"status":"ok","version":"2.0.0"}`
 - `POST /api/v1/appointments/` (creates appointment, sends “New Appointment Request” to doctor + staff tokens)
@@ -19,8 +37,7 @@ Monorepo for appointment-driven push notifications:
 - `PATCH /api/v1/providers/me/fcm-token` (stores `glenogi_fcm_token` on provider document)
 
 ## Run locally (quick)
-- Backend: `uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload` (from `/backend`)
-- Mobile: update `mobile-app/src/config/api.ts` (`API_BASE_URL`) to your dev machine IP, then run the RN app normally.
+- Mobile: update `mobile-app/src/config/api.ts` (`API_BASE_URL`) to your dev machine IP (where the backend is reachable), then run the RN app normally.
 
 ## Prototype notes
 - Auth is a **stub** in the backend (prototype only).
