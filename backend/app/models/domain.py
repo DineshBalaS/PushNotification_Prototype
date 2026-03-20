@@ -1,6 +1,7 @@
 from pydantic import BaseModel, Field
-from typing import List, Optional
+from typing import Optional
 from datetime import datetime, timezone
+
 
 class PyObjectId(str):
     @classmethod
@@ -8,12 +9,14 @@ class PyObjectId(str):
         from pydantic_core import core_schema
         return core_schema.str_schema()
 
+
 def current_time():
     return datetime.now(timezone.utc)
 
-# -------------------------------------------------------------
-# Core Entity Collections
-# -------------------------------------------------------------
+
+# ------------------------------------------------------------------
+# Core Entity Collections  (exactly 4: patients, staff, doctor, appointments)
+# ------------------------------------------------------------------
 
 class Patient(BaseModel):
     id: Optional[PyObjectId] = Field(alias="_id", default=None)
@@ -22,47 +25,27 @@ class Patient(BaseModel):
     email: Optional[str] = None
     created_at: datetime = Field(default_factory=current_time)
 
+
 class Staff(BaseModel):
     id: Optional[PyObjectId] = Field(alias="_id", default=None)
     name: str
     role: str = "receptionist"
+    glenogi_fcm_token: Optional[str] = None
     created_at: datetime = Field(default_factory=current_time)
+
 
 class Doctor(BaseModel):
     id: Optional[PyObjectId] = Field(alias="_id", default=None)
     name: str
     specialty: str
+    glenogi_fcm_token: Optional[str] = None
     created_at: datetime = Field(default_factory=current_time)
 
-class User(BaseModel):
-    """Example collection to represent standard users. Not actively used in this prototype."""
-    id: Optional[PyObjectId] = Field(alias="_id", default=None)
-    username: str
-    role: str
-    created_at: datetime = Field(default_factory=current_time)
-
-# -------------------------------------------------------------
-# Prototype Collections
-# -------------------------------------------------------------
-
-class DeviceToken(BaseModel):
-    id: Optional[PyObjectId] = Field(alias="_id", default=None)
-    owner_id: str
-    owner_type: str  # e.g., 'doctor', 'staff'
-    fcm_tokens: List[str] = Field(default_factory=list)
 
 class Appointment(BaseModel):
     id: Optional[PyObjectId] = Field(alias="_id", default=None)
     patient_id: str
     doctor_id: str
-    status: str = "pending"  # 'pending', 'approved'
+    status: str = "PENDING"  # PENDING | ACCEPTED
     appointment_time: datetime
     created_at: datetime = Field(default_factory=current_time)
-
-class NotificationInbox(BaseModel):
-    id: Optional[PyObjectId] = Field(alias="_id", default=None)
-    user_id: str
-    title: str
-    body: str
-    is_read: bool = False
-    timestamp: datetime = Field(default_factory=current_time)
