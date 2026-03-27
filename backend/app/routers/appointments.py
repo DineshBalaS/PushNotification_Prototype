@@ -16,6 +16,15 @@ logger = setup_logger()
 
 router = APIRouter(prefix="/api/v1/appointments", tags=["Appointments"])
 
+async def _resolve_device_tokens(
+    db: AsyncIOMotorDatabase, *, owner_type: str, owner_id: str
+) -> list[str]:
+    doc = await db.device_tokens.find_one(
+        {"owner_type": owner_type, "owner_id": owner_id}, {"fcm_tokens": 1}
+    )
+    tokens = doc.get("fcm_tokens", []) if doc else []
+    return [t for t in tokens if isinstance(t, str) and t]
+
 
 @router.post("/", status_code=201)
 async def create_appointment(
@@ -27,10 +36,11 @@ async def create_appointment(
     Webhook entry point for booking a new appointment.
 
     Broadcast strategy:
-      - Validates the doctor exists via a projection-only read (glenogi_fcm_token only).
+      - Validates the doctor exists.
       - Inserts the appointment document with status PENDING.
-      - Concurrently resolves all Staff FCM tokens via a second projection-only cursor.
-      - Combines the doctor token + all staff tokens, deduplicates, and filters nulls.
+      - Resolves the doctor's device tokens via device_tokens registry.
+      - Resolves all Staff device tokens via device_tokens registry.
+      - Combines doctor + staff tokens, deduplicates, and filters empties.
       - Enqueues one BackgroundTask per valid token so the 201 is returned immediately
         and FCM dispatch happens entirely after the response is sent.
     """
@@ -43,11 +53,8 @@ async def create_appointment(
             status_code=400,
         )
 
-    # --- DB read 1: doctor existence check + FCM token (projection only) ---
-    doctor = await db.doctor.find_one(
-        {"_id": doctor_oid},
-        {"glenogi_fcm_token": 1},
-    )
+    # --- DB read 1: doctor existence check ---
+    doctor = await db.doctor.find_one({"_id": doctor_oid}, {"_id": 1})
     if not doctor:
         raise AppException(
             detail="Doctor not found.",
@@ -67,19 +74,24 @@ async def create_appointment(
     appointment_id = str(result.inserted_id)
     logger.info(f"Appointment created | id={appointment_id} | doctor={request.doctor_id}")
 
-    # --- DB read 2: all staff FCM tokens (projection only) ---
-    # Fetches ONLY the glenogi_fcm_token field across the entire staff collection.
-    staff_cursor = db.staff.find({}, {"glenogi_fcm_token": 1})
-    staff_tokens: list[str] = [
-        doc["glenogi_fcm_token"]
-        async for doc in staff_cursor
-        if doc.get("glenogi_fcm_token")
-    ]
+    # --- DB read 2: resolve doctor device tokens (device_tokens registry) ---
+    doctor_tokens = await _resolve_device_tokens(
+        db, owner_type="doctor", owner_id=str(doctor_oid)
+    )
+
+    # --- DB read 3: resolve all staff device tokens (device_tokens registry) ---
+    staff_cursor = db.staff.find({}, {"_id": 1})
+    staff_tokens: list[str] = []
+    async for staff in staff_cursor:
+        staff_id = staff.get("_id")
+        if staff_id:
+            staff_tokens.extend(
+                await _resolve_device_tokens(db, owner_type="staff", owner_id=str(staff_id))
+            )
 
     # --- Build deduplicated broadcast list ---
     # Use a set to prevent double-delivering if a staff member is also the doctor.
-    raw_tokens: list[str | None] = [doctor.get("glenogi_fcm_token")] + staff_tokens
-    broadcast_tokens: list[str] = list({t for t in raw_tokens if t})
+    broadcast_tokens: list[str] = list({t for t in (doctor_tokens + staff_tokens) if t})
 
     if broadcast_tokens:
         notification_data = {
@@ -117,8 +129,8 @@ async def update_appointment_status(
 
     Uses find_one_and_update with ReturnDocument.AFTER to retrieve the
     updated document in a single atomic operation — no separate read required.
-    The doctor's FCM token is then fetched via a projection-only query and
-    FCM dispatch is enqueued as a BackgroundTask so the 200 is returned first.
+    The doctor's device tokens are fetched via the device_tokens registry and
+    FCM dispatch is enqueued as BackgroundTasks so the 200 is returned first.
     """
     try:
         appt_oid = ObjectId(appointment_id)
@@ -148,33 +160,38 @@ async def update_appointment_status(
         f"Appointment {appointment_id} status updated to {request.status} | doctor={doctor_id}"
     )
 
-    # --- DB read: doctor FCM token (projection only) ---
+    # --- DB read: doctor existence check ---
     try:
         doctor_oid = ObjectId(doctor_id)
     except InvalidId:
         logger.warning(f"Stored doctor_id '{doctor_id}' is not a valid ObjectId; FCM skipped.")
         return {"status": "success", "message": f"Appointment status updated to {request.status}."}
 
-    doctor = await db.doctor.find_one(
-        {"_id": doctor_oid},
-        {"glenogi_fcm_token": 1},
-    )
+    doctor = await db.doctor.find_one({"_id": doctor_oid}, {"_id": 1})
 
-    if doctor and doctor.get("glenogi_fcm_token"):
-        fcm_token = doctor["glenogi_fcm_token"]
-        background_tasks.add_task(
-            dispatch_fcm_notification,
-            token=fcm_token,
-            title="Appointment Status Update",
-            body=f"Your appointment has been updated to {request.status}.",
-            data_payload={
-                "appointment_id": appointment_id,
-                "doctor_id": doctor_id,
-                "status": request.status,
-            },
+    if doctor:
+        doctor_tokens = await _resolve_device_tokens(
+            db, owner_type="doctor", owner_id=str(doctor_oid)
         )
-        logger.info(f"FCM alert queued for doctor {doctor_id} | status={request.status}")
+        if doctor_tokens:
+            for token in doctor_tokens:
+                background_tasks.add_task(
+                    dispatch_fcm_notification,
+                    token=token,
+                    title="Appointment Status Update",
+                    body=f"Your appointment has been updated to {request.status}.",
+                    data_payload={
+                        "appointment_id": appointment_id,
+                        "doctor_id": doctor_id,
+                        "status": request.status,
+                    },
+                )
+            logger.info(
+                f"FCM alert queued for doctor {doctor_id} | status={request.status} | recipients={len(doctor_tokens)}"
+            )
+        else:
+            logger.info(f"Doctor {doctor_id} has no device_tokens; status alert skipped.")
     else:
-        logger.info(f"Doctor {doctor_id} has no FCM token; status alert skipped.")
+        logger.info(f"Doctor {doctor_id} not found; status alert skipped.")
 
     return {"status": "success", "message": f"Appointment status updated to {request.status}."}

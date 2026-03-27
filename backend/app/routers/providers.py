@@ -25,29 +25,46 @@ async def update_provider_fcm_token(
     provider (Doctor or Staff).  The auth stub returns a mock provider; swap
     get_current_provider() for real JWT decoding before production.
     """
-    provider_id = provider["id"]
-    collection_name = provider["collection"]
+    # Prototype mode: allow explicit impersonation from client payload to
+    # avoid ambiguity when no real authentication exists yet.
+    if request.owner_type and request.owner_id:
+        owner_type = request.owner_type
+        owner_id = request.owner_id
+    else:
+        owner_type = provider.get("type") or provider.get("collection")
+        owner_id = provider.get("id")
 
     try:
-        object_id = ObjectId(provider_id)
+        object_id = ObjectId(owner_id)
     except InvalidId:
         raise AppException(
-            detail=f"Provider id '{provider_id}' is not a valid ObjectId.",
+            detail=f"Provider id '{owner_id}' is not a valid ObjectId.",
             code="INVALID_PROVIDER_ID",
             status_code=400,
         )
 
-    result = await db[collection_name].update_one(
-        {"_id": object_id},
-        {"$set": {"glenogi_fcm_token": request.fcm_token}},
-    )
-
-    if result.matched_count == 0:
+    # Validate owner exists in the expected collection.
+    # Collection names in this repo are singular: "doctor" and "staff".
+    collection_name = "doctor" if owner_type == "doctor" else "staff"
+    exists = await db[collection_name].find_one({"_id": object_id}, {"_id": 1})
+    if not exists:
         raise AppException(
             detail="Provider document not found.",
             code="PROVIDER_NOT_FOUND",
             status_code=404,
         )
 
-    logger.info(f"FCM token updated for provider {provider_id} in collection '{collection_name}'.")
-    return {"status": "success", "message": "FCM token updated."}
+    # Upsert into decoupled device_tokens registry.
+    await db.device_tokens.update_one(
+        {"owner_type": owner_type, "owner_id": str(object_id)},
+        {
+            "$setOnInsert": {"owner_type": owner_type, "owner_id": str(object_id)},
+            "$addToSet": {"fcm_tokens": request.fcm_token},
+        },
+        upsert=True,
+    )
+
+    logger.info(
+        f"Device token registered | owner_type={owner_type} | owner_id={str(object_id)} | token={request.fcm_token[:20]}..."
+    )
+    return {"status": "success", "message": "FCM token registered.", "owner_type": owner_type, "owner_id": str(object_id)}

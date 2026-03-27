@@ -46,6 +46,12 @@ async def _create_indexes():
         await db_config.db.appointments.create_index(
             [("patient_id", pymongo.ASCENDING), ("appointment_time", pymongo.DESCENDING)]
         )
+
+        # Device token registry: fast lookup by owner and ensure one doc per owner
+        await db_config.db.device_tokens.create_index(
+            [("owner_type", pymongo.ASCENDING), ("owner_id", pymongo.ASCENDING)],
+            unique=True,
+        )
         logger.info("Database indexes established.")
     except Exception as e:
         logger.error(f"Failed to create MongoDB indexes: {e}")

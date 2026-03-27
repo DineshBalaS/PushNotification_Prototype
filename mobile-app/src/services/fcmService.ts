@@ -9,6 +9,8 @@ import { API_BASE_URL } from '../config/api';
 import { useNotificationStore } from '../store/useNotificationStore';
 
 const FCM_TOKEN_ENDPOINT = `${API_BASE_URL}/api/v1/providers/me/fcm-token`;
+const IMPERSONATED_OWNER_TYPE = 'doctor';
+const IMPERSONATED_OWNER_ID = '69bb8c9997dbc788acc28b3d'; // Dr. Harper
 
 // ---------------------------------------------------------------------------
 // Sends the FCM token to the backend PATCH endpoint.
@@ -21,28 +23,6 @@ const FCM_TOKEN_ENDPOINT = `${API_BASE_URL}/api/v1/providers/me/fcm-token`;
 // The next successful sync will overwrite the cache naturally.
 // ---------------------------------------------------------------------------
 async function syncTokenWithBackend(token: string): Promise<void> {
-  // #region agent log
-  fetch(
-    'http://127.0.0.1:7703/ingest/f5fb0264-6c01-4c5c-bf77-43c4e9004fbd',
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Debug-Session-Id': '1d42bc',
-      },
-      body: JSON.stringify({
-        sessionId: '1d42bc',
-        runId: 'run1',
-        hypothesisId: 'H3_fetch_attempt',
-        location: 'fcmService.ts:syncTokenWithBackend:entry',
-        message: 'Token sync fetch invoked',
-        data: { endpoint: FCM_TOKEN_ENDPOINT },
-        timestamp: Date.now(),
-      }),
-    },
-  ).catch(() => {});
-  // #endregion agent log
-
   console.log(`[FCM] Syncing token to: ${FCM_TOKEN_ENDPOINT}`);
 
   try {
@@ -52,7 +32,12 @@ async function syncTokenWithBackend(token: string): Promise<void> {
     const response = await fetch(FCM_TOKEN_ENDPOINT, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ fcm_token: token }),
+      body: JSON.stringify({
+        fcm_token: token,
+        owner_type: IMPERSONATED_OWNER_TYPE,
+        owner_id: IMPERSONATED_OWNER_ID,
+        platform: 'android',
+      }),
       signal: controller.signal,
     });
 
@@ -66,52 +51,8 @@ async function syncTokenWithBackend(token: string): Promise<void> {
     } else {
       console.log('[FCM] Token synced with backend successfully.');
     }
-
-    // #region agent log
-    fetch(
-      'http://127.0.0.1:7703/ingest/f5fb0264-6c01-4c5c-bf77-43c4e9004fbd',
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Debug-Session-Id': '1d42bc',
-        },
-        body: JSON.stringify({
-          sessionId: '1d42bc',
-          runId: 'run1',
-          hypothesisId: 'H3_fetch_response',
-          location: 'fcmService.ts:syncTokenWithBackend:after_fetch',
-          message: 'Fetch completed',
-          data: { ok: response.ok, status: response.status },
-          timestamp: Date.now(),
-        }),
-      },
-    ).catch(() => {});
-    // #endregion agent log
   } catch (error) {
     console.warn('[FCM] Backend unreachable — token cached locally only:', error);
-
-    // #region agent log
-    fetch(
-      'http://127.0.0.1:7703/ingest/f5fb0264-6c01-4c5c-bf77-43c4e9004fbd',
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Debug-Session-Id': '1d42bc',
-        },
-        body: JSON.stringify({
-          sessionId: '1d42bc',
-          runId: 'run1',
-          hypothesisId: 'H3_fetch_error',
-          location: 'fcmService.ts:syncTokenWithBackend:catch',
-          message: 'Fetch threw network error',
-          data: { name: (error as any)?.name, message: (error as any)?.message },
-          timestamp: Date.now(),
-        }),
-      },
-    ).catch(() => {});
-    // #endregion agent log
   }
 
   // Always cache regardless of backend success — prevents infinite retry loops
@@ -133,28 +74,6 @@ export async function initializeFCM(): Promise<void> {
 
   if (!isAuthorized) {
     console.warn('[FCM] Notification permission not granted.');
-
-    // #region agent log
-    fetch(
-      'http://127.0.0.1:7703/ingest/f5fb0264-6c01-4c5c-bf77-43c4e9004fbd',
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Debug-Session-Id': '1d42bc',
-        },
-        body: JSON.stringify({
-          sessionId: '1d42bc',
-          runId: 'run1',
-          hypothesisId: 'H1_permission_block',
-          location: 'fcmService.ts:initializeFCM:not_authorized',
-          message: 'Permission not granted; aborting token sync',
-          data: { isAuthorized, authStatus },
-          timestamp: Date.now(),
-        }),
-      },
-    ).catch(() => {});
-    // #endregion agent log
     return;
   }
 
@@ -164,39 +83,27 @@ export async function initializeFCM(): Promise<void> {
     return;
   }
 
-  const cachedToken = useNotificationStore.getState().fcmTokenCache;
-  // #region agent log
-  fetch(
-    'http://127.0.0.1:7703/ingest/f5fb0264-6c01-4c5c-bf77-43c4e9004fbd',
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Debug-Session-Id': '1d42bc',
-      },
-      body: JSON.stringify({
-        sessionId: '1d42bc',
-        runId: 'run1',
-        hypothesisId: 'H2_cache_skip',
-        location: 'fcmService.ts:initializeFCM:token_compare',
-        message: 'Token compare against cached value',
-        data: {
-          tokenPresent: !!currentToken,
-          cachedPresent: !!cachedToken,
-          shouldSync: currentToken !== cachedToken,
-        },
-        timestamp: Date.now(),
-      }),
-    },
-  ).catch(() => {});
-  // #endregion agent log
-
-  if (currentToken !== cachedToken) {
-    console.log('[FCM] Token is new or rotated — syncing with backend.');
-    await syncTokenWithBackend(currentToken);
-  } else {
-    console.log('[FCM] Token unchanged — skipping backend sync.');
+  // Debug-only: make it easy to verify token retrieval in RN DevTools.
+  // Note: this should not be relied on for production security.
+  if (__DEV__) {
+    console.log('[FCM][DEV] Retrieved FCM token:', currentToken);
+    // Also expose it on global for quick inspection in some debuggers.
+    try {
+      (globalThis as any).__FCM_TOKEN__ = currentToken;
+    } catch {
+      // Ignore if global assignment is restricted in the current runtime.
+    }
   }
+
+  const cachedToken = useNotificationStore.getState().fcmTokenCache;
+  const isNewOrRotated = currentToken !== cachedToken;
+
+  if (isNewOrRotated) {
+    console.log('[FCM] Token is new or rotated — syncing with backend.');
+  } else {
+    console.log('[FCM] Token unchanged — syncing anyway (debug mode).');
+  }
+  await syncTokenWithBackend(currentToken);
 
   onTokenRefresh(messagingInstance, async (refreshedToken) => {
     console.log('[FCM] Token rotated by Firebase — re-syncing with backend.');
