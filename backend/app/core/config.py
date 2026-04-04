@@ -6,6 +6,7 @@ class Settings(BaseSettings):
     mongodb_db_name: str = "push_notification_prototype"
     frontend_url: str = "http://localhost:3000"
     firebase_credentials_path: str = ""
+    novu_secret_key: str = ""
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
