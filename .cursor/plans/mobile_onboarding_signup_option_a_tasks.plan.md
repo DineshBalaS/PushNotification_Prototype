@@ -15,6 +15,8 @@ isProject: false
 
 ## Task 1 — Backend: signup schema + `POST /api/v1/providers/signup`
 
+**Completed.**
+
 **Do:** Add a Pydantic request model (`owner_type`, `first_name`, `last_name`, optional `specialty` for doctor). Add `POST` handler on the providers router that inserts one `doctor` or `staff` document: `user_id = uuid4`, `name` built from first+last (document convention), `specialty` required for doctor (default e.g. `General` if omitted). Return JSON: `owner_id` (24-hex ObjectId string), `user_id` (UUID string), `owner_type`.
 
 **Pass criteria:**

@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends
+from uuid import uuid4
+
+from fastapi import APIRouter, Depends, status
 from bson import ObjectId
 from bson.errors import InvalidId
 from motor.motor_asyncio import AsyncIOMotorDatabase
@@ -6,7 +8,12 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 from app.db.database import get_db
 from app.core.auth import get_current_provider
 from app.core.config import settings
-from app.models.schemas import FcmTokenUpdateRequest
+from app.models.domain import Doctor, Staff
+from app.models.schemas import (
+    FcmTokenUpdateRequest,
+    ProviderSignupRequest,
+    ProviderSignupResponse,
+)
 from app.core.exceptions import AppException
 from app.core.logger import setup_logger
 from app.services.novu_subscribers import sync_subscriber_fcm_to_novu
@@ -14,6 +21,69 @@ from app.services.novu_subscribers import sync_subscriber_fcm_to_novu
 logger = setup_logger()
 
 router = APIRouter(prefix="/api/v1/providers", tags=["Providers"])
+
+
+@router.post(
+    "/signup",
+    status_code=status.HTTP_201_CREATED,
+    response_model=ProviderSignupResponse,
+)
+async def signup_provider(
+    body: ProviderSignupRequest,
+    db: AsyncIOMotorDatabase = Depends(get_db),
+):
+    """
+    Prototype signup: inserts one ``doctor`` or ``staff`` with a new ``user_id`` (UUID).
+    Novu / FCM are not touched here; the client calls PATCH /me/fcm-token after onboarding.
+    """
+    logger.debug(
+        "Signup: start owner_type=%s first_name_len=%s last_name_len=%s doctor_specialty_provided=%s",
+        body.owner_type,
+        len(body.first_name),
+        len(body.last_name),
+        body.specialty is not None,
+    )
+
+    user_id = str(uuid4())
+    full_name = f"{body.first_name} {body.last_name}".strip()
+
+    if body.owner_type == "doctor":
+        specialty = body.specialty if body.specialty is not None else "General"
+        doc = Doctor(user_id=user_id, name=full_name, specialty=specialty)
+        payload = doc.model_dump(by_alias=True, exclude_none=True)
+        collection = db.doctor
+        logger.debug(
+            "Signup: inserting doctor name=%s specialty=%s user_id=%s",
+            full_name,
+            specialty,
+            user_id,
+        )
+    else:
+        doc = Staff(user_id=user_id, name=full_name, role="receptionist")
+        payload = doc.model_dump(by_alias=True, exclude_none=True)
+        collection = db.staff
+        logger.debug(
+            "Signup: inserting staff name=%s role=%s user_id=%s",
+            full_name,
+            payload.get("role"),
+            user_id,
+        )
+
+    result = await collection.insert_one(payload)
+    owner_id = str(result.inserted_id)
+
+    logger.debug(
+        "Signup: inserted owner_type=%s owner_id=%s user_id=%s",
+        body.owner_type,
+        owner_id,
+        user_id,
+    )
+
+    return ProviderSignupResponse(
+        owner_id=owner_id,
+        user_id=user_id,
+        owner_type=body.owner_type,
+    )
 
 
 @router.patch("/me/fcm-token", status_code=200)

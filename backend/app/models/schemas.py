@@ -1,6 +1,66 @@
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, field_validator, model_validator
 from datetime import datetime
 from typing import Literal, Optional
+
+
+class ProviderSignupRequest(BaseModel):
+    """Payload for prototype provider self-signup (doctor or staff)."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=False)
+
+    owner_type: Literal["doctor", "staff"] = Field(
+        ..., description="Whether this signup creates a doctor or staff document"
+    )
+    first_name: str = Field(..., min_length=1, max_length=120)
+    last_name: str = Field(..., min_length=1, max_length=120)
+    specialty: Optional[str] = Field(
+        default=None,
+        max_length=200,
+        description=(
+            "Doctor specialty; omitted or blank defaults to General on signup. "
+            "If sent for staff, it is ignored (staff documents have no specialty field)."
+        ),
+    )
+
+    @field_validator("first_name", "last_name", mode="before")
+    @classmethod
+    def _strip_name_parts(cls, v: object) -> object:
+        if isinstance(v, str):
+            return v.strip()
+        return v
+
+    @field_validator("first_name", "last_name")
+    @classmethod
+    def _names_non_empty_after_strip(cls, v: str) -> str:
+        if not v:
+            raise ValueError("must not be empty")
+        return v
+
+    @model_validator(mode="before")
+    @classmethod
+    def _drop_specialty_for_staff_payload(cls, data: object) -> object:
+        """Staff documents do not store specialty; omit the key so clients may send it harmlessly."""
+        if isinstance(data, dict) and data.get("owner_type") == "staff" and "specialty" in data:
+            return {k: v for k, v in data.items() if k != "specialty"}
+        return data
+
+    @field_validator("specialty", mode="before")
+    @classmethod
+    def _normalize_specialty(cls, v: object) -> object:
+        if isinstance(v, str):
+            s = v.strip()
+            return s if s else None
+        return v
+
+
+class ProviderSignupResponse(BaseModel):
+    """Successful signup: Mongo ObjectId as owner_id, Novu subscriber id as user_id."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    owner_id: str = Field(..., description="24-hex MongoDB ObjectId of the new document")
+    user_id: str = Field(..., description="Stable UUID string used as Novu subscriberId")
+    owner_type: Literal["doctor", "staff"]
 
 
 class FcmTokenUpdateRequest(BaseModel):
