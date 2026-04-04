@@ -11,11 +11,22 @@ isProject: false
 
 **Out of scope for this plan:** Real auth/JWT, duplicate-user prevention, iOS dev URL fix (optional follow-up), appointment triggers.
 
+## Plan progress
+
+- **Task 1** — Backend signup schema + `POST /api/v1/providers/signup` (completed)
+- **Task 2** — Backend logging + error shape (completed)
+- **Task 3** — Mobile persisted onboarding state
+- **Task 4** — Mobile API client for signup
+- **Task 5** — Mobile onboarding UI
+- **Task 6** — Mobile `App.tsx` routing
+- **Task 7** — FCM sync from stored provider identity
+- **Task 8** — End-to-end smoke documentation
+
 ---
 
 ## Task 1 — Backend: signup schema + `POST /api/v1/providers/signup`
 
-**Completed.**
+**Status: completed.**
 
 **Do:** Add a Pydantic request model (`owner_type`, `first_name`, `last_name`, optional `specialty` for doctor). Add `POST` handler on the providers router that inserts one `doctor` or `staff` document: `user_id = uuid4`, `name` built from first+last (document convention), `specialty` required for doctor (default e.g. `General` if omitted). Return JSON: `owner_id` (24-hex ObjectId string), `user_id` (UUID string), `owner_type`.
 
@@ -29,6 +40,8 @@ isProject: false
 ---
 
 ## Task 2 — Backend: logging + error shape
+
+**Status: completed.**
 
 **Do:** INFO log on successful signup (include `owner_type`, `owner_id`, `user_id`, no secrets). Reuse `AppException` for predictable JSON errors if insert fails.
 

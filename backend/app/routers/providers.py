@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, status
 from bson import ObjectId
 from bson.errors import InvalidId
 from motor.motor_asyncio import AsyncIOMotorDatabase
+from pymongo.errors import DuplicateKeyError, PyMongoError
 
 from app.db.database import get_db
 from app.core.auth import get_current_provider
@@ -69,11 +70,42 @@ async def signup_provider(
             user_id,
         )
 
-    result = await collection.insert_one(payload)
+    try:
+        result = await collection.insert_one(payload)
+    except DuplicateKeyError:
+        logger.warning(
+            "Signup: duplicate key on insert | owner_type=%s user_id=%s",
+            body.owner_type,
+            user_id,
+        )
+        raise AppException(
+            detail="Signup could not complete due to a conflicting record.",
+            code="SIGNUP_DUPLICATE_KEY",
+            status_code=status.HTTP_409_CONFLICT,
+        ) from None
+    except PyMongoError:
+        logger.error(
+            "Signup: database error | owner_type=%s user_id=%s",
+            body.owner_type,
+            user_id,
+            exc_info=True,
+        )
+        raise AppException(
+            detail="Signup could not be saved. Please try again.",
+            code="SIGNUP_DB_ERROR",
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        ) from None
+
     owner_id = str(result.inserted_id)
 
     logger.debug(
         "Signup: inserted owner_type=%s owner_id=%s user_id=%s",
+        body.owner_type,
+        owner_id,
+        user_id,
+    )
+    logger.info(
+        "Provider signup completed | owner_type=%s owner_id=%s user_id=%s",
         body.owner_type,
         owner_id,
         user_id,
