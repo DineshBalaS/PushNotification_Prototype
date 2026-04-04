@@ -19,8 +19,8 @@ isProject: false
 - **Task 4** — Mobile API client for signup (completed)
 - **Task 5** — Mobile onboarding UI (completed)
 - **Task 6** — Mobile `App.tsx` routing (completed; wired with Task 5 for end-to-end flow)
-- **Task 7** — FCM sync from stored provider identity
-- **Task 8** — End-to-end smoke documentation
+- **Task 7** — FCM sync from stored provider identity (completed)
+- **Task 8** — End-to-end smoke documentation (completed; see `documentation/NovuPrototype.md` § *Mobile onboarding + push smoke test*)
 
 ---
 
@@ -106,6 +106,8 @@ isProject: false
 
 ## Task 7 — Mobile: FCM sync uses stored provider identity (Option A)
 
+**Status: completed.**
+
 **Do:** Remove hardcoded `IMPERSONATED_OWNER_`* from `fcmService.ts`. `syncTokenWithBackend` reads `ownerId` + `ownerType` from Task 3 store. If onboarding incomplete or ids missing, skip PATCH (log once). After onboarding, `initializeFCM` runs and PATCH includes `fcm_token`, `owner_type`, `owner_id`, `platform`.
 
 **Pass criteria:**
@@ -117,7 +119,11 @@ isProject: false
 
 ## Task 8 — End-to-end smoke (manual)
 
+**Status: completed.**
+
 **Do:** Document in this file or `documentation/NovuPrototype.md` (one short paragraph): order of operations—seed or empty DB, `npm run android`, complete onboarding, confirm Mongo + Novu subscriber.
+
+**Done in:** `[documentation/NovuPrototype.md](../../documentation/NovuPrototype.md)` — section **“Mobile onboarding + push smoke test (Option A)”** (order of operations, Mongo + Novu checks, `PATCH` / `legacy_mongo` note, permission-denied behavior).
 
 **Pass criteria:**
 

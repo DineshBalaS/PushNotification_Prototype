@@ -149,7 +149,16 @@ The backend already exposes settings such as MongoDB URL and Firebase credential
 
 ---
 
+## Mobile onboarding + push smoke test (Option A)
+
+**Order of operations (repeatable):** Start MongoDB and the FastAPI backend (`uvicorn` on port **8000** from `backend` with `.env` including Novu and Firebase). For a **physical Android** device using `http://localhost:8000` in dev, run **`adb reverse tcp:8000 tcp:8000`**. Optionally use an **empty DB** or clear app storage for a clean run. From `mobile-app`, run **`npm run android`** (Metro bundler as usual). Complete **onboarding** in the app (notifications prompt, role, name, signup); the app persists **`owner_id`** / **`user_id`** / **`owner_type`**, then calls **`PATCH /api/v1/providers/me/fcm-token`** with the stored **`owner_id`**, **`owner_type`**, FCM token, and **`platform`**. Confirm in **Mongo** (`doctor` or `staff`) a document whose **`_id`** matches **`owner_id`** and **`user_id`** matches the Novu subscriber id. In the **Novu dashboard**, open **Subscribers** and verify **`subscriberId`** equals that same **`user_id`** (UUID) and, after a successful token sync, **push / FCM credentials** appear on the subscriber.
+
+**Pass checks:** `PATCH` returns **HTTP 200**; server logs show **Novu subscriber + FCM** sync and **`legacy_mongo=False`** unless `PERSIST_DEVICE_TOKENS_IN_MONGO` is enabled in backend config. If the user **denied** notification permission, signup still completes but token sync is skipped until permission is granted (no Novu device credentials until then).
+
+---
+
 ## Changelog
 
 - **Planning phase:** scope, phases, doc links, and deferrals captured in this file.
+- **Mobile Option A smoke:** onboarding → signup → `PATCH` → Mongo + Novu subscriber verification documented above.
 

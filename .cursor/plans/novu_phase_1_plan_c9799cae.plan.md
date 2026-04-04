@@ -249,7 +249,7 @@ You deferred **D** (double devices / person). For Phase 1 **planning**, record o
 
 - `PATCH /api/v1/providers/me/fcm-token` with valid Mongo `owner_id` (ObjectId) + `fcm_token` returns **200** and JSON includes `user_id` (UUID) and success message.
 - Novu failure returns **502**, `code` `**NOVU_API_ERROR`** (not a false 200); server logs `Novu API error` with step + `user_id`.
-- Novu dashboard: subscriber `**subscriberId**` matches Mongo `user_id`; FCM credentials show the token after success.
+- Novu dashboard: subscriber `**subscriberId`** matches Mongo `user_id`; FCM credentials show the token after success.
 - With `**PERSIST_DEVICE_TOKENS_IN_MONGO**` unset or **false**, Mongo `device_tokens` is **not** updated for that call (confirm with a DB query or logs: no `legacy device_tokens write` DEBUG unless flag on).
 - With flag **true**, legacy `device_tokens` document still updates (optional rollback path).
 - **Known follow-up:** `appointments.py` may still read `device_tokens` / `dispatch_fcm_notification` until Step 5 migration — booking push is independent of this PATCH verification.
