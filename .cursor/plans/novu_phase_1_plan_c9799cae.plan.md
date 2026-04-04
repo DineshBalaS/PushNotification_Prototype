@@ -186,3 +186,114 @@ You deferred **D** (double devices / person). For Phase 1 **planning**, record o
 5. Mobile: point API URL to Render via env; call new registration endpoint; Notifee mapping.
 6. Deploy Render + Vercel; smoke test with logs + Activity Feed.
 
+## **What we will do and why**
+
+### **1) Align identity:** `user_id` **→ Novu** `subscriberId`
+
+**What:** Ensure the backend can resolve a **single string** that Novu will use as `subscriberId` (Novu’s canonical recipient id per [Subscribers](https://docs.novu.co/platform/concepts/subscribers)).
+
+**Why:** Today the API treats `owner_id` as **Mongo** `ObjectId`. Your product decision is `user_id` **= subscriberId**. Without a defined mapping (DB field or request field), Novu and Mongo will drift.
+
+**Likely shape:** After validating the doctor/staff document, **read** `user_id` **from that document** (once you add it to Mongo) **or** accept `user_id` in the body only if you still verify it against the loaded document. **Why:** avoids trusting the client blindly while still using `user_id` in Novu.
+
+---
+
+### **2) Extend settings for Novu (minimal, real needs)** — DONE (config + logging + `.env.example`)
+
+**What:** In `backend/app/core/config.py`, add only what the code will read: optional **API base URL** (US vs EU—`novu-py` passes this as `server_url`; EU example `https://eu.api.novu.co`), optional `NOVU_FCM_INTEGRATION_IDENTIFIER` if your Novu project has a named FCM integration ([Push](https://docs.novu.co/platform/integrations/push)). `NOVU_SECRET_KEY` is **required** (non-empty) at settings load time.
+
+**Why:** Secret key alone is enough for US default; EU or multiple FCM integrations need explicit config.
+
+**Step 2 completion checklist (before Step 3):**
+
+- `NOVU_SECRET_KEY` is set in `.env` (local) or the host secret store (Render, etc.); value is non-empty and not shipped to mobile or frontend.
+- If the Novu project is in **EU**, set `NOVU_SERVER_URL=https://eu.api.novu.co` (or the host your dashboard documents); otherwise omit for US default.
+- If the Novu workspace has **more than one FCM integration**, set `NOVU_FCM_INTEGRATION_IDENTIFIER` to the integration identifier from the dashboard; otherwise omit.
+- Start the API (`uvicorn app.main:app --reload`) and confirm a startup line like `Novu: API base …; FCM integration …` with no validation error from `Settings`.
+- Optional: set logging to DEBUG and confirm `Novu settings detail:` includes the resolved optional fields (never logs the secret).
+
+---
+
+### **3) Add a small Novu integration module (single responsibility)** — DONE (`app/services/novu_subscribers.py`)
+
+**What:** New module (e.g. `app/services/novu_subscribers.py` or similar) that wraps `novu-py`:
+
+- **Create or update subscriber** with `subscriber_id=<user_id>` and optional profile fields (name from Mongo if useful).
+- **Upsert FCM credentials** via the SDK’s subscriber credentials **append** path (`credentials.append_async` → PATCH; Novu **Upsert provider credentials** / append tokens: [API ref](https://docs.novu.co/api-reference/subscribers/upsert-provider-credentials)).
+
+**Why:** Keeps `providers.py` thin; centralizes auth (`NOVU_SECRET_KEY`), error handling, logging, and future reuse (e.g. appointment triggers).
+
+**Implementation notes:** Single cached `Novu` client (`_novu_client`), `sync_subscriber_fcm_to_novu(user_id=..., fcm_token=..., display_name=...)`: `subscribers.create_async` then `subscribers.credentials.append_async` with `providerId` `fcm`, optional `integrationIdentifier` from `NOVU_FCM_INTEGRATION_IDENTIFIER`. Novu failures → `AppException` `NOVU_API_ERROR` / 502; details logged (no full FCM token in error logs).
+
+**Step 3 completion checklist (paste outputs for verification):**
+
+- `python -c "from app.services.novu_subscribers import sync_subscriber_fcm_to_novu; print('import_ok')"` from `backend/` prints `import_ok` with no `ModuleNotFoundError` / `novu_py` errors.
+- Optional: `await sync_subscriber_fcm_to_novu(user_id="<uuid from Mongo>", fcm_token="<real FCM token>", display_name="Dr …")` (e.g. short asyncio script) returns `None` and logs `Novu: subscriber + FCM credentials synced`.
+- On intentional bad secret: startup still works; the above call logs `Novu API error` and raises `AppException` / HTTP 502 with code `NOVU_API_ERROR` if wired to an endpoint.
+- Novu dashboard: subscriber appears with `subscriberId` = your `user_id`; push / credentials show the device token after a successful sync.
+- With logging level DEBUG, log lines include `Novu: create/upsert subscriber` and `Novu: append FCM credentials` (token prefix only, not full token).
+
+---
+
+### **4) Wire the existing PATCH handler** — DONE (`providers.py` + `PERSIST_DEVICE_TOKENS_IN_MONGO`)
+
+**What:** In `update_provider_fcm_token`, **after** Mongo validation succeeds, call the Novu module: upsert subscriber + FCM token for `subscriberId = user_id`.
+
+**Why:** Same HTTP contract the mobile app already uses; no new mobile endpoint required for this slice.
+
+**Also decided:**
+
+- **Default:** no Mongo `device_tokens` write. **Optional:** `PERSIST_DEVICE_TOKENS_IN_MONGO=true` restores legacy `$addToSet` for rollback / parallel runs. **Why:** Novu is source of truth; dual writes invite bugs.
+
+**Step 4 completion checklist (before Step 5 — appointment trigger / Mongo token reads):**
+
+- `PATCH /api/v1/providers/me/fcm-token` with valid Mongo `owner_id` (ObjectId) + `fcm_token` returns **200** and JSON includes `user_id` (UUID) and success message.
+- Novu failure returns **502**, `code` `**NOVU_API_ERROR`** (not a false 200); server logs `Novu API error` with step + `user_id`.
+- Novu dashboard: subscriber `**subscriberId**` matches Mongo `user_id`; FCM credentials show the token after success.
+- With `**PERSIST_DEVICE_TOKENS_IN_MONGO**` unset or **false**, Mongo `device_tokens` is **not** updated for that call (confirm with a DB query or logs: no `legacy device_tokens write` DEBUG unless flag on).
+- With flag **true**, legacy `device_tokens` document still updates (optional rollback path).
+- **Known follow-up:** `appointments.py` may still read `device_tokens` / `dispatch_fcm_notification` until Step 5 migration — booking push is independent of this PATCH verification.
+
+---
+
+### **5) Request schema**
+
+**What:** Extend `FcmTokenUpdateRequest` only if needed—e.g. optional `user_id` **only** if the server cannot yet read it from Mongo; otherwise **no** new field and **derive** `user_id` from the doctor/staff document.
+
+**Why:** Schema should match the real source of truth for `subscriberId` and avoid redundant/conflicting ids.
+
+---
+
+### **6) Error handling and logging**
+
+**What:** If `NOVU_SECRET_KEY` is missing, return a clear **503/500** with a stable error code; log Novu failures without logging full FCM tokens.
+
+**Why:** Fails fast in dev/deploy; avoids silent “success” when Novu didn’t update.
+
+---
+
+### **7) Dependencies**
+
+**What:** Rely on `novu-py` only for this feature; remove or ignore the legacy `novu` package if it’s unused **Why:** one client, predictable API ([Python SDK](https://docs.novu.co/platform/sdks/server/python)).
+
+---
+
+### **8) Explicitly out of this feature**
+
+**What:** Do **not** change `appointments.py` or Firebase `push_service.py` in this slice.
+
+**Why:** This plan is **token registration → Novu only**; booking triggers are a separate change.
+
+---
+
+## **Implementation order (backend)**
+
+1. `user_id` on doctor/staff + seed/data (if not present) so the server can resolve `subscriberId`.
+2. Config fields + `.env` documentation.
+3. Novu service module (subscriber + FCM credential upsert).
+4. PATCH handler: call Novu; remove or gate Mongo `device_tokens`.
+5. Manual test: register token → confirm subscriber + credentials in Novu dashboard / API.
+
+---
+
+No code in this message—this is the backend plan only.

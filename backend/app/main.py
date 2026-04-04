@@ -19,6 +19,16 @@ from app.routers.providers import router as providers_router
 
 logger = setup_logger()
 logger.info("Initializing Push Notification Backend...")
+logger.info(
+    "Novu: API base %s; FCM integration %s.",
+    settings.novu_server_url or "default (US)",
+    settings.novu_fcm_integration_identifier or "default",
+)
+logger.debug(
+    "Novu settings detail: server_url=%r fcm_integration_identifier=%r",
+    settings.novu_server_url,
+    settings.novu_fcm_integration_identifier,
+)
 
 
 def _init_firebase() -> None:

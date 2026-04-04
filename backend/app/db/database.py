@@ -52,6 +52,17 @@ async def _create_indexes():
             [("owner_type", pymongo.ASCENDING), ("owner_id", pymongo.ASCENDING)],
             unique=True,
         )
+        # Doctor / staff: unique user_id for Novu subscriberId resolution (sparse: legacy docs without field are skipped)
+        await db_config.db.doctor.create_index(
+            [("user_id", pymongo.ASCENDING)],
+            unique=True,
+            sparse=True,
+        )
+        await db_config.db.staff.create_index(
+            [("user_id", pymongo.ASCENDING)],
+            unique=True,
+            sparse=True,
+        )
         logger.info("Database indexes established.")
     except Exception as e:
         logger.error(f"Failed to create MongoDB indexes: {e}")

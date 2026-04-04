@@ -5,9 +5,11 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from app.db.database import get_db
 from app.core.auth import get_current_provider
+from app.core.config import settings
 from app.models.schemas import FcmTokenUpdateRequest
 from app.core.exceptions import AppException
 from app.core.logger import setup_logger
+from app.services.novu_subscribers import sync_subscriber_fcm_to_novu
 
 logger = setup_logger()
 
@@ -21,9 +23,9 @@ async def update_provider_fcm_token(
     db: AsyncIOMotorDatabase = Depends(get_db),
 ):
     """
-    Registers or rotates the FCM device token for the currently authenticated
-    provider (Doctor or Staff).  The auth stub returns a mock provider; swap
-    get_current_provider() for real JWT decoding before production.
+    Registers or rotates the FCM device token for the authenticated provider.
+    Tokens are stored in Novu (subscriberId = Mongo ``user_id``). Optional
+    legacy write to ``device_tokens`` when ``PERSIST_DEVICE_TOKENS_IN_MONGO=true``.
     """
     # Prototype mode: allow explicit impersonation from client payload to
     # avoid ambiguity when no real authentication exists yet.
@@ -46,7 +48,10 @@ async def update_provider_fcm_token(
     # Validate owner exists in the expected collection.
     # Collection names in this repo are singular: "doctor" and "staff".
     collection_name = "doctor" if owner_type == "doctor" else "staff"
-    exists = await db[collection_name].find_one({"_id": object_id}, {"_id": 1})
+    exists = await db[collection_name].find_one(
+        {"_id": object_id},
+        {"_id": 1, "user_id": 1, "name": 1},
+    )
     if not exists:
         raise AppException(
             detail="Provider document not found.",
@@ -54,17 +59,66 @@ async def update_provider_fcm_token(
             status_code=404,
         )
 
-    # Upsert into decoupled device_tokens registry.
-    await db.device_tokens.update_one(
-        {"owner_type": owner_type, "owner_id": str(object_id)},
-        {
-            "$setOnInsert": {"owner_type": owner_type, "owner_id": str(object_id)},
-            "$addToSet": {"fcm_tokens": request.fcm_token},
-        },
-        upsert=True,
+    subscriber_user_id = exists.get("user_id")
+    if not subscriber_user_id or not isinstance(subscriber_user_id, str):
+        logger.warning(
+            "Provider %s/%s missing valid user_id — re-seed DB or migrate documents",
+            owner_type,
+            object_id,
+        )
+        raise AppException(
+            detail="Provider record has no user_id; run database seed or add user_id to this document.",
+            code="PROVIDER_USER_ID_MISSING",
+            status_code=409,
+        )
+
+    display_name = exists.get("name")
+    if isinstance(display_name, str):
+        display_name = display_name.strip() or None
+    else:
+        display_name = None
+
+    logger.debug(
+        "FCM PATCH | owner_type=%s owner_object_id=%s user_id=%s has_display_name=%s novu_next=1",
+        owner_type,
+        object_id,
+        subscriber_user_id,
+        bool(display_name),
     )
 
-    logger.info(
-        f"Device token registered | owner_type={owner_type} | owner_id={str(object_id)} | token={request.fcm_token[:20]}..."
+    await sync_subscriber_fcm_to_novu(
+        user_id=subscriber_user_id,
+        fcm_token=request.fcm_token,
+        display_name=display_name,
     )
-    return {"status": "success", "message": "FCM token registered.", "owner_type": owner_type, "owner_id": str(object_id)}
+
+    if settings.persist_device_tokens_in_mongo:
+        logger.debug(
+            "FCM PATCH | legacy device_tokens write enabled owner_type=%s owner_id=%s",
+            owner_type,
+            object_id,
+        )
+        await db.device_tokens.update_one(
+            {"owner_type": owner_type, "owner_id": str(object_id)},
+            {
+                "$setOnInsert": {"owner_type": owner_type, "owner_id": str(object_id)},
+                "$addToSet": {"fcm_tokens": request.fcm_token},
+            },
+            upsert=True,
+        )
+
+    logger.info(
+        "FCM token registered (Novu) | owner_type=%s owner_id=%s user_id=%s token_prefix=%s... legacy_mongo=%s",
+        owner_type,
+        object_id,
+        subscriber_user_id,
+        request.fcm_token[:20],
+        settings.persist_device_tokens_in_mongo,
+    )
+    return {
+        "status": "success",
+        "message": "FCM token registered with notification provider.",
+        "owner_type": owner_type,
+        "owner_id": str(object_id),
+        "user_id": subscriber_user_id,
+    }

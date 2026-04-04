@@ -1,10 +1,15 @@
 import asyncio
+import uuid
+
 from motor.motor_asyncio import AsyncIOMotorClient
+
 from app.core.config import settings
-from app.models.domain import Patient, Staff, Doctor
+from app.core.logger import setup_logger
+from app.models.domain import Doctor, Patient, Staff
 from faker import Faker
 
 fake = Faker()
+logger = setup_logger()
 
 async def seed():
     print("Initializing Database Seeding Process...")
@@ -35,21 +40,41 @@ async def seed():
     specialties = ["Orthodontics", "Endodontics", "Periodontics"]
     doctors = []
     for i in range(3):
+        uid = str(uuid.uuid4())
         d = Doctor(
+            user_id=uid,
             name=f"Dr. {fake.last_name()}",
-            specialty=specialties[i]
+            specialty=specialties[i],
         )
-        doctors.append(d.model_dump(by_alias=True, exclude_none=True))
-        
+        payload = d.model_dump(by_alias=True, exclude_none=True)
+        doctors.append(payload)
+        logger.debug(
+            "Seed: prepared doctor name=%s specialty=%s user_id=%s",
+            payload.get("name"),
+            payload.get("specialty"),
+            uid,
+        )
+
     if doctors:
         await db.doctor.insert_many(doctors)
+        logger.info("Seed: inserted %s doctor documents with unique user_id", len(doctors))
 
     print("Generating 1 Staff Member...")
+    staff_uid = str(uuid.uuid4())
     s = Staff(
+        user_id=staff_uid,
         name=fake.name(),
-        role="receptionist"
+        role="receptionist",
     )
-    await db.staff.insert_one(s.model_dump(by_alias=True, exclude_none=True))
+    staff_doc = s.model_dump(by_alias=True, exclude_none=True)
+    await db.staff.insert_one(staff_doc)
+    logger.debug(
+        "Seed: inserted staff name=%s role=%s user_id=%s",
+        staff_doc.get("name"),
+        staff_doc.get("role"),
+        staff_uid,
+    )
+    logger.info("Seed: inserted 1 staff document with user_id")
 
     print("✅ Database successfully populated with 10 Patients, 3 Doctors, and 1 Staff.")
     client.close()

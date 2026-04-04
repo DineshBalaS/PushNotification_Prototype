@@ -28,6 +28,8 @@ class Patient(BaseModel):
 
 class Staff(BaseModel):
     id: Optional[PyObjectId] = Field(alias="_id", default=None)
+    """Stable application id; use as Novu subscriberId for this staff member."""
+    user_id: str
     name: str
     role: str = "receptionist"
     glenogi_fcm_token: Optional[str] = None
@@ -36,6 +38,8 @@ class Staff(BaseModel):
 
 class Doctor(BaseModel):
     id: Optional[PyObjectId] = Field(alias="_id", default=None)
+    """Stable application id; use as Novu subscriberId for this doctor."""
+    user_id: str
     name: str
     specialty: str
     glenogi_fcm_token: Optional[str] = None
