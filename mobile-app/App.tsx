@@ -3,21 +3,58 @@
  */
 
 import { getMessaging, onMessage } from '@react-native-firebase/messaging';
-import React, { useEffect } from 'react';
-import { StatusBar, useColorScheme } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import {
+  ActivityIndicator,
+  StatusBar,
+  StyleSheet,
+  useColorScheme,
+  View,
+} from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import Toast from 'react-native-toast-message';
 
 import InboxScreen from './src/screens/InboxScreen';
+import OnboardingScreen from './src/screens/OnboardingScreen';
 import { initializeFCM } from './src/services/fcmService';
 import { useNotificationStore } from './src/store/useNotificationStore';
+import { useOnboardingStore } from './src/store/useOnboardingStore';
 
 function App(): React.JSX.Element {
   const isDark = useColorScheme() === 'dark';
+  const [hydrated, setHydrated] = useState(() =>
+    useOnboardingStore.persist.hasHydrated(),
+  );
+  const onboardingComplete = useOnboardingStore((s) => s.onboardingComplete);
 
   useEffect(() => {
-    // --- FCM initialisation (permission request + token registration) ---
-    initializeFCM();
+    if (hydrated) {
+      return undefined;
+    }
+    const unsub = useOnboardingStore.persist.onFinishHydration(() => {
+      setHydrated(true);
+    });
+    if (useOnboardingStore.persist.hasHydrated()) {
+      setHydrated(true);
+    }
+    return unsub;
+  }, [hydrated]);
+
+  useEffect(() => {
+    if (!hydrated || !onboardingComplete) {
+      return;
+    }
+    initializeFCM().catch((err) => {
+      if (__DEV__) {
+        console.warn('[App] initializeFCM failed:', err);
+      }
+    });
+  }, [hydrated, onboardingComplete]);
+
+  useEffect(() => {
+    if (!hydrated) {
+      return undefined;
+    }
 
     // --- Foreground message listener (modular RNFirebase v22+ API) ---
     // onMessage(messagingInstance, handler) replaces messaging().onMessage(handler).
@@ -52,7 +89,22 @@ function App(): React.JSX.Element {
 
     // Cleanup: remove the listener when the component unmounts.
     return () => unsubscribe();
-  }, []);
+  }, [hydrated]);
+
+  const mainContent = !hydrated ? (
+    <View
+      style={[
+        styles.hydrateContainer,
+        isDark ? styles.hydrateBgDark : styles.hydrateBgLight,
+      ]}
+    >
+      <ActivityIndicator size="large" color="#3B82F6" />
+    </View>
+  ) : onboardingComplete ? (
+    <InboxScreen />
+  ) : (
+    <OnboardingScreen />
+  );
 
   return (
     <SafeAreaProvider>
@@ -60,7 +112,7 @@ function App(): React.JSX.Element {
         barStyle={isDark ? 'light-content' : 'dark-content'}
         backgroundColor={isDark ? '#111827' : '#FFFFFF'}
       />
-      <InboxScreen />
+      {mainContent}
       {/*
         Toast must be rendered at the very top of the component tree so it
         renders above all other views. It is self-positioning via `position`
@@ -70,5 +122,15 @@ function App(): React.JSX.Element {
     </SafeAreaProvider>
   );
 }
+
+const styles = StyleSheet.create({
+  hydrateContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  hydrateBgDark: { backgroundColor: '#111827' },
+  hydrateBgLight: { backgroundColor: '#F9FAFB' },
+});
 
 export default App;

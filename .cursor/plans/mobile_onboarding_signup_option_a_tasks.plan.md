@@ -16,9 +16,9 @@ isProject: false
 - **Task 1** — Backend signup schema + `POST /api/v1/providers/signup` (completed)
 - **Task 2** — Backend logging + error shape (completed)
 - **Task 3** — Mobile persisted onboarding state (completed)
-- **Task 4** — Mobile API client for signup
-- **Task 5** — Mobile onboarding UI
-- **Task 6** — Mobile `App.tsx` routing
+- **Task 4** — Mobile API client for signup (completed)
+- **Task 5** — Mobile onboarding UI (completed)
+- **Task 6** — Mobile `App.tsx` routing (completed; wired with Task 5 for end-to-end flow)
 - **Task 7** — FCM sync from stored provider identity
 - **Task 8** — End-to-end smoke documentation
 
@@ -67,6 +67,8 @@ isProject: false
 
 ## Task 4 — Mobile: API client for signup
 
+**Status: completed.**
+
 **Do:** Small module (e.g. `src/services/providerApi.ts`) calling `POST ${API_BASE_URL}/api/v1/providers/signup` with JSON body; parse success JSON; throw or return typed error on non-OK.
 
 **Pass criteria:**
@@ -78,6 +80,8 @@ isProject: false
 
 ## Task 5 — Mobile: onboarding UI (screens / flow)
 
+**Status: completed.**
+
 **Do:** New screen(s) or single wizard: (1) Short copy + primary action leading to `requestPermission` (FCM); (2) role toggle doctor vs staff; (3) `TextInput` first name + last name; (4) for doctor, specialty (field or fixed default per Task 1); (5) Submit → call signup API → `completeOnboarding` with response.
 
 **Pass criteria:**
@@ -88,6 +92,8 @@ isProject: false
 ---
 
 ## Task 6 — Mobile: `App.tsx` routing
+
+**Status: completed.**
 
 **Do:** If `!onboardingComplete`, render onboarding; else render `InboxScreen` (and existing Toast / listeners).
 
