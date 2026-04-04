@@ -15,7 +15,7 @@ isProject: false
 
 - **Task 1** — Backend signup schema + `POST /api/v1/providers/signup` (completed)
 - **Task 2** — Backend logging + error shape (completed)
-- **Task 3** — Mobile persisted onboarding state
+- **Task 3** — Mobile persisted onboarding state (completed)
 - **Task 4** — Mobile API client for signup
 - **Task 5** — Mobile onboarding UI
 - **Task 6** — Mobile `App.tsx` routing
@@ -53,6 +53,8 @@ isProject: false
 ---
 
 ## Task 3 — Mobile: persisted auth / onboarding state
+
+**Status: completed.**
 
 **Do:** New Zustand (+ MMKV persist, same pattern as `useNotificationStore`) or extend a dedicated store: fields e.g. `onboardingComplete`, `ownerId`, `ownerType`, `userId` (optional `displayName`). Actions: `completeOnboarding(payload)`, `reset()` (dev only optional).
 

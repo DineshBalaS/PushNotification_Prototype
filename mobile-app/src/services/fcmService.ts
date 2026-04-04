@@ -10,7 +10,7 @@ import { useNotificationStore } from '../store/useNotificationStore';
 
 const FCM_TOKEN_ENDPOINT = `${API_BASE_URL}/api/v1/providers/me/fcm-token`;
 const IMPERSONATED_OWNER_TYPE = 'doctor';
-const IMPERSONATED_OWNER_ID = '69bb8c9997dbc788acc28b3d'; // Dr. Harper
+const IMPERSONATED_OWNER_ID = '69d1503ecd1595c68dc391ed';
 
 // ---------------------------------------------------------------------------
 // Sends the FCM token to the backend PATCH endpoint.
