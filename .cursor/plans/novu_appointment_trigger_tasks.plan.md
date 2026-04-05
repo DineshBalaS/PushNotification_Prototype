@@ -4,10 +4,10 @@ overview: "After a successful appointment insert, replace the legacy per-FCM-tok
 todos:
   - id: novu-workflow-manual
     content: "Novu Dashboard: push workflow + identifier; FCM integration; test trigger once"
-    status: pending
+    status: completed
   - id: config-workflow-id
     content: "Backend: NOVU_APPOINTMENT_WORKFLOW_ID in Settings + .env.example"
-    status: pending
+    status: completed
   - id: novu-trigger-service
     content: "Backend: app/services module — trigger_async wrapper, payload helpers, logging"
     status: pending

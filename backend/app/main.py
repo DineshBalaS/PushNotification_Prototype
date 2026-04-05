@@ -21,14 +21,16 @@ from app.routers.providers import router as providers_router
 logger = setup_logger()
 logger.info("Initializing Push Notification Backend...")
 logger.info(
-    "Novu: API base %s; FCM integration %s.",
+    "Novu: API base %s; FCM integration %s; appointment workflow_id=%s.",
     settings.novu_server_url or "default (US)",
     settings.novu_fcm_integration_identifier or "default",
+    settings.novu_appointment_workflow_id,
 )
 logger.debug(
-    "Novu settings detail: server_url=%r fcm_integration_identifier=%r",
+    "Novu settings detail: server_url=%r fcm_integration_identifier=%r workflow_id=%r",
     settings.novu_server_url,
     settings.novu_fcm_integration_identifier,
+    settings.novu_appointment_workflow_id,
 )
 
 

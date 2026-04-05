@@ -29,6 +29,13 @@ class Settings(BaseSettings):
             "integrations exist (Push channel / credentials APIs)."
         ),
     )
+    novu_appointment_workflow_id: str = Field(
+        min_length=1,
+        description=(
+            "Novu workflow identifier for new-appointment push (dashboard). "
+            "Maps to NOVU_APPOINTMENT_WORKFLOW_ID."
+        ),
+    )
     persist_device_tokens_in_mongo: bool = Field(
         default=False,
         description=(
