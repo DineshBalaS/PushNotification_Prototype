@@ -63,6 +63,11 @@ async def _create_indexes():
             unique=True,
             sparse=True,
         )
+        await db_config.db.patient.create_index(
+            [("user_id", pymongo.ASCENDING)],
+            unique=True,
+            sparse=True,
+        )
         logger.info("Database indexes established.")
     except Exception as e:
         logger.error(f"Failed to create MongoDB indexes: {e}")

@@ -20,6 +20,10 @@ def current_time():
 
 class Patient(BaseModel):
     id: Optional[PyObjectId] = Field(alias="_id", default=None)
+    user_id: str = Field(
+        ...,
+        description="Stable UUID string; use as Novu subscriberId if the patient ever receives notifications.",
+    )
     name: str
     phone_number: str
     email: Optional[str] = None
