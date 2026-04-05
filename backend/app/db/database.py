@@ -46,6 +46,10 @@ async def _create_indexes():
         await db_config.db.appointments.create_index(
             [("patient_id", pymongo.ASCENDING), ("appointment_time", pymongo.DESCENDING)]
         )
+        await db_config.db.appointments.create_index(
+            [("doctor_user_id", pymongo.ASCENDING)],
+            sparse=True,
+        )
 
         # Device token registry: fast lookup by owner and ensure one doc per owner
         await db_config.db.device_tokens.create_index(

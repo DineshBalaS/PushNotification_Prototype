@@ -4,19 +4,19 @@ overview: "Add a minimal Next.js sample page with a Book Appointment button that
 todos:
   - id: backend-doctors-list
     content: "Backend: GET /api/v1/doctors (or equivalent) listing Mongo doctor _id + display fields"
-    status: pending
+    status: completed
   - id: prototype-patient-id
     content: "Prototype patient_id source (env or minimal GET /patients) — must be valid Mongo ObjectId string"
-    status: pending
+    status: completed
   - id: web-env-api-client
     content: "web-app: NEXT_PUBLIC_API_BASE_URL + typed fetch helper for appointments + doctors"
-    status: pending
+    status: completed
   - id: web-modal-ui
     content: "web-app: Book button, modal, doctor selection, date+time → ISO UTC appointment_time"
-    status: pending
+    status: completed
   - id: web-submit-verify
     content: "web-app: POST handling, user-visible success/error; manual E2E checklist vs backend"
-    status: pending
+    status: completed
 isProject: false
 ---
 
@@ -60,14 +60,11 @@ isProject: false
 
 ---
 
-## Task 2 — Prototype `patient_id` source
+## Task 2 — Prototype `patient_id` source ✅ Option A
 
 **Goal:** `POST /api/v1/appointments/` **requires** `patient_id` as **Mongo ObjectId** of a real `patient` document (see schema docstring). The widget must supply it without guessing.
 
-**Pick one approach (document the choice in code comments + `.env.example`):**
-
-- **A (minimal):** `NEXT_PUBLIC_BOOKING_PATIENT_ID` in `web-app` — operator copies one `_id` from Mongo after seed. No new backend route.
-- **B (better UX):** `GET /api/v1/patients` returning `{ "id", "name" }[]` (no secrets), same pattern as Task 1; widget defaults to first patient or lets user pick.
+**Implemented:** **Option A** — `NEXT_PUBLIC_BOOKING_PATIENT_ID` in `web-app` (see `[web-app/.env.example](web-app/.env.example)`). Resolver + validation: `[web-app/lib/booking-config.ts](web-app/lib/booking-config.ts)` (`getBookingPatientId()`). Default example id matches the demo patient you seeded; override on **Vercel** to the `_id` of the patient row in **production** Mongo.
 
 **Pass criteria:**
 
@@ -76,15 +73,16 @@ isProject: false
 
 ---
 
-## Task 3 — Web: API base URL and client helpers
+## Task 3 — Web: API base URL and client helpers ✅
 
-**Goal:** No hardcoded `http://127.0.0.1:8000` scattered in components.
+**Goal:** No hardcoded API host in source; configure via env (local + Vercel).
 
-**Implementation sketch:**
+**Implemented:**
 
-- `web-app/.env.local` (gitignored): `NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000`
-- Add `web-app/.env.example` with the same key and a one-line comment.
-- Small module e.g. `web-app/lib/api.ts`: `getJson`, `postJson` using `fetch`, reading `process.env.NEXT_PUBLIC_API_BASE_URL`, throwing or returning typed errors.
+- `[web-app/lib/api.ts](web-app/lib/api.ts)` — `getApiBaseUrl()`, `getJson`, `postJson`, `ApiError`, `fetchHealth`, `fetchDoctors`, `createAppointment`; dev-only `console.debug` / failure `console.error`; base URL = **URL origin only** (path segment warned and ignored).
+- `[web-app/components/DevApiHealthProbe.tsx](web-app/components/DevApiHealthProbe.tsx)` — **development only**: calls `fetchHealth()` on mount; logs `[api] health probe OK` or a warning.
+- `[web-app/app/layout.tsx](web-app/app/layout.tsx)` — mounts `DevApiHealthProbe`.
+- `[web-app/.env.example](web-app/.env.example)` — Render/Vercel notes for `NEXT_PUBLIC_API_BASE_URL`.
 
 **Pass criteria:**
 
@@ -93,17 +91,16 @@ isProject: false
 
 ---
 
-## Task 4 — Web: Book button + modal (doctor, date, time)
+## Task 4 — Web: Book button + modal (doctor, date, time) ✅
 
 **Goal:** Match mock flow: trigger opens modal; user selects **one doctor**, **one date**, **one time**; values held in React state until submit.
 
-**UI scope:**
+**Implemented:**
 
-- **Book appointment** button on `[web-app/app/page.tsx](web-app/app/page.tsx)` (or a dedicated `app/booking/page.tsx` if you prefer — keep routing simple).
-- Modal: focus trap / ESC / backdrop close optional for prototype; at minimum **Cancel** + **Submit**.
-- **Doctors:** load from Task 1 on open (or on mount); radio list showing name + specialty; value = doctor `id` string.
-- **Date:** month grid like mock (local implementation or a tiny dependency — align with project preference; **no** dependency is fine if you ship a minimal grid).
-- **Time:** native `<input type="time">` is acceptable for prototype; combine selected local date + time into one **UTC** `Date` for JSON (use `toISOString()` for the payload field).
+- `[web-app/app/page.tsx](web-app/app/page.tsx)` — server page + metadata; renders `[DentistLanding](web-app/components/dentist-landing.tsx)`.
+- `[web-app/components/dentist-landing.tsx](web-app/components/dentist-landing.tsx)` — teal “Riverside Dental” placeholder; **`next/dynamic`** loads `[BookingModal](web-app/components/booking/BookingModal.tsx)` with **`ssr: false`**, doctors fetched only after open; loading UI while chunk loads.
+- `[web-app/components/booking/BookingModal.tsx](web-app/components/booking/BookingModal.tsx)` — radios, month calendar, `<input type="time">`, **`toISOString()`** payload; **`getBookingPatientId`** + **`createAppointment`**; ESC / backdrop / **Close**; dev **`console.debug`**; body scroll lock.
+- `[web-app/app/globals.css](web-app/app/globals.css)` — `.dentist-page` gradient.
 
 **Pass criteria:**
 
@@ -113,25 +110,15 @@ isProject: false
 
 ---
 
-## Task 5 — Web: POST appointment + user feedback
+## Task 5 — Web: POST appointment + user feedback ✅
 
-**Goal:** Submit calls existing backend; user sees clear outcome.
+**Goal:** Submit calls existing backend; user sees clear outcome. Appointments carry **doctor `user_id`** (Novu `subscriberId`) resolved **server-side** from the doctor document — not sent by the client.
 
-**Payload (must match backend):**
+**Payload (unchanged):** `patient_id`, `doctor_id`, `appointment_time` only.
 
-```json
-{
-  "patient_id": "<24-hex ObjectId>",
-  "doctor_id": "<24-hex ObjectId>",
-  "appointment_time": "<ISO-8601 UTC, e.g. 2026-04-05T14:30:00.000Z>"
-}
-```
+**Backend:** `[appointments.py](backend/app/routers/appointments.py)` stores `doctor_user_id` on insert; **201** body includes `doctor_user_id`; FCM `data_payload` includes it when set; PATCH status FCM adds it when present on the appointment doc. Sparse index on `appointments.doctor_user_id`.
 
-**Implementation sketch:**
-
-- `POST ${BASE}/api/v1/appointments/` with `Content-Type: application/json`.
-- On **201**: show success message including returned `appointment_id`; close modal or offer “Book another”.
-- On **4xx/5xx**: show `detail` from `AppException` JSON if present, else status text.
+**Web:** `[BookingModal](web-app/components/booking/BookingModal.tsx)` shows **error code** (`ApiError.code`), success text with **appointment_id** + subscriber line, **Book another** (resets form), blocks duplicate confirm until reset.
 
 **Pass criteria:**
 

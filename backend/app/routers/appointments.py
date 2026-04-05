@@ -9,7 +9,11 @@ from pymongo import ReturnDocument
 from app.core.exceptions import AppException
 from app.core.logger import setup_logger
 from app.db.database import get_db
-from app.models.schemas import AppointmentCreateRequest, AppointmentStatusUpdateRequest
+from app.models.schemas import (
+    AppointmentCreatedResponse,
+    AppointmentCreateRequest,
+    AppointmentStatusUpdateRequest,
+)
 from app.services.push_service import dispatch_fcm_notification
 
 logger = setup_logger()
@@ -26,7 +30,7 @@ async def _resolve_device_tokens(
     return [t for t in tokens if isinstance(t, str) and t]
 
 
-@router.post("/", status_code=201)
+@router.post("/", status_code=201, response_model=AppointmentCreatedResponse)
 async def create_appointment(
     request: AppointmentCreateRequest,
     background_tasks: BackgroundTasks,
@@ -53,8 +57,8 @@ async def create_appointment(
             status_code=400,
         )
 
-    # --- DB read 1: doctor existence check ---
-    doctor = await db.doctor.find_one({"_id": doctor_oid}, {"_id": 1})
+    # --- DB read 1: doctor existence + stable user_id (Novu subscriberId) ---
+    doctor = await db.doctor.find_one({"_id": doctor_oid}, {"_id": 1, "user_id": 1})
     if not doctor:
         raise AppException(
             detail="Doctor not found.",
@@ -62,17 +66,46 @@ async def create_appointment(
             status_code=404,
         )
 
+    raw_uid = doctor.get("user_id")
+    doctor_user_id: str | None = None
+    if isinstance(raw_uid, str):
+        stripped = raw_uid.strip()
+        if stripped:
+            doctor_user_id = stripped
+        else:
+            logger.warning(
+                "Doctor %s has empty user_id; appointment stored with doctor_user_id=null",
+                doctor_oid,
+            )
+    else:
+        logger.warning(
+            "Doctor %s missing user_id field; appointment stored with doctor_user_id=null (Novu triggers may need it)",
+            doctor_oid,
+        )
+
+    logger.debug(
+        "Appointment create | doctor_oid=%s resolved doctor_user_id=%s",
+        doctor_oid,
+        doctor_user_id or "(null)",
+    )
+
     # --- DB write: insert appointment ---
     appointment_doc = {
         "patient_id": request.patient_id,
         "doctor_id": request.doctor_id,
+        "doctor_user_id": doctor_user_id,
         "status": "PENDING",
         "appointment_time": request.appointment_time,
         "created_at": datetime.now(timezone.utc),
     }
     result = await db.appointments.insert_one(appointment_doc)
     appointment_id = str(result.inserted_id)
-    logger.info(f"Appointment created | id={appointment_id} | doctor={request.doctor_id}")
+    logger.info(
+        "Appointment created | id=%s | doctor=%s | doctor_user_id=%s",
+        appointment_id,
+        request.doctor_id,
+        doctor_user_id or "(null)",
+    )
 
     # --- DB read 2: resolve doctor device tokens (device_tokens registry) ---
     doctor_tokens = await _resolve_device_tokens(
@@ -99,6 +132,8 @@ async def create_appointment(
             "patient_id": request.patient_id,
             "status": "PENDING",
         }
+        if doctor_user_id:
+            notification_data["doctor_user_id"] = doctor_user_id
         for token in broadcast_tokens:
             background_tasks.add_task(
                 dispatch_fcm_notification,
@@ -113,7 +148,11 @@ async def create_appointment(
     else:
         logger.info(f"No FCM tokens found for appointment {appointment_id}; push skipped.")
 
-    return {"status": "success", "appointment_id": appointment_id}
+    return AppointmentCreatedResponse(
+        status="success",
+        appointment_id=appointment_id,
+        doctor_user_id=doctor_user_id,
+    )
 
 
 @router.patch("/{appointment_id}/status", status_code=200)
@@ -174,17 +213,25 @@ async def update_appointment_status(
             db, owner_type="doctor", owner_id=str(doctor_oid)
         )
         if doctor_tokens:
+            status_payload = {
+                "appointment_id": appointment_id,
+                "doctor_id": doctor_id,
+                "status": request.status,
+            }
+            doc_novu_id = updated_appointment.get("doctor_user_id")
+            if isinstance(doc_novu_id, str) and doc_novu_id.strip():
+                status_payload["doctor_user_id"] = doc_novu_id.strip()
+                logger.debug(
+                    "Status FCM payload includes doctor_user_id=%s...",
+                    doc_novu_id.strip()[:8],
+                )
             for token in doctor_tokens:
                 background_tasks.add_task(
                     dispatch_fcm_notification,
                     token=token,
                     title="Appointment Status Update",
                     body=f"Your appointment has been updated to {request.status}.",
-                    data_payload={
-                        "appointment_id": appointment_id,
-                        "doctor_id": doctor_id,
-                        "status": request.status,
-                    },
+                    data_payload=status_payload,
                 )
             logger.info(
                 f"FCM alert queued for doctor {doctor_id} | status={request.status} | recipients={len(doctor_tokens)}"

@@ -77,6 +77,16 @@ class FcmTokenUpdateRequest(BaseModel):
     platform: Optional[str] = Field(default=None, description="Optional client platform identifier")
 
 
+class DoctorListItem(BaseModel):
+    """One doctor row for booking UIs (Mongo ``_id`` exposed as ``id``)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(..., description="24-hex MongoDB ObjectId string; use as appointment doctor_id")
+    name: str = Field(..., description="Doctor display name")
+    specialty: str = Field(..., description="Medical specialty label")
+
+
 class AppointmentCreateRequest(BaseModel):
     """Payload for booking a new appointment. Status is always enforced as PENDING server-side."""
     model_config = ConfigDict(extra='forbid')
@@ -84,6 +94,19 @@ class AppointmentCreateRequest(BaseModel):
     patient_id: str = Field(..., description="MongoDB ObjectId of the patient")
     doctor_id: str = Field(..., description="MongoDB ObjectId of the assigned doctor")
     appointment_time: datetime = Field(..., description="Scheduled slot in UTC")
+
+
+class AppointmentCreatedResponse(BaseModel):
+    """Returned after a successful insert. ``doctor_user_id`` is copied from the doctor row (Novu ``subscriberId``)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["success"] = "success"
+    appointment_id: str = Field(..., description="MongoDB ObjectId string of the new appointment")
+    doctor_user_id: Optional[str] = Field(
+        default=None,
+        description="Doctor's stable user_id when present on the doctor document; else null.",
+    )
 
 
 class AppointmentStatusUpdateRequest(BaseModel):

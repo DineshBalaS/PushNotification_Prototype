@@ -24,3 +24,14 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+.dentist-page {
+  background: linear-gradient(
+    145deg,
+    #ccfbf1 0%,
+    #99f6e4 35%,
+    #5eead4 70%,
+    #0f766e 100%
+  );
+  color: #134e4a;
+}

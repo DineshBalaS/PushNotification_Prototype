@@ -54,6 +54,10 @@ class Appointment(BaseModel):
     id: Optional[PyObjectId] = Field(alias="_id", default=None)
     patient_id: str
     doctor_id: str
+    doctor_user_id: Optional[str] = Field(
+        default=None,
+        description="Copied from the assigned doctor at booking time (Novu subscriberId).",
+    )
     status: str = "PENDING"  # PENDING | ACCEPTED
     appointment_time: datetime
     created_at: datetime = Field(default_factory=current_time)

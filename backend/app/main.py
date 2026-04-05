@@ -15,6 +15,7 @@ from app.core.exceptions import (
 from app.core.logger import setup_logger
 from app.db.database import close_mongo_connection, connect_to_mongo
 from app.routers.appointments import router as appointments_router
+from app.routers.doctors import router as doctors_router
 from app.routers.providers import router as providers_router
 
 logger = setup_logger()
@@ -76,6 +77,7 @@ app.add_exception_handler(AppException, global_app_exception_handler)
 app.add_exception_handler(Exception, global_unhandled_exception_handler)
 
 app.include_router(providers_router)
+app.include_router(doctors_router)
 app.include_router(appointments_router)
 
 
