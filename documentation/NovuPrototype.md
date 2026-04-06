@@ -157,8 +157,26 @@ The backend already exposes settings such as MongoDB URL and Firebase credential
 
 ---
 
+## Backend: appointment Novu workflows
+
+Required env vars (see `backend/.env.example`):
+
+| Variable | Role |
+| -------- | ---- |
+| `NOVU_APPOINTMENT_WORKFLOW_ID` | Triggered after **`POST /api/v1/appointments/`** (doctor + staff `user_id`s). |
+| `NOVU_APPOINTMENT_STATUS_WORKFLOW_ID` | Triggered after **`PATCH /api/v1/appointments/{id}/status`** (doctor only, uses `doctor_user_id` on the appointment doc). |
+
+**Booking payload keys** (camelCase, match your Push template): `patientName`, `appointmentTime`, `appointmentId`, optional `doctorName`.
+
+**Status payload keys:** `appointmentId`, `status`, `patientName`, `doctorId` (Mongo `doctor_id` string). Create a **second workflow** in the Novu dashboard (e.g. Push step) with identifier equal to `NOVU_APPOINTMENT_STATUS_WORKFLOW_ID`, and reference `{{payload.appointmentId}}`, `{{payload.status}}`, etc.
+
+**Manual PATCH test:** Create an appointment (so the document has `doctor_user_id`). Call `PATCH /api/v1/appointments/{appointment_id}/status` with JSON `{"status":"ACCEPTED"}` (or `REJECTED` / `CANCELLED` per schema). Expect **HTTP 200**; logs `Novu status workflow queued` then `Novu workflow triggered`; doctor device receives push if FCM is registered on that subscriber in Novu.
+
+---
+
 ## Changelog
 
 - **Planning phase:** scope, phases, doc links, and deferrals captured in this file.
 - **Mobile Option A smoke:** onboarding → signup → `PATCH` → Mongo + Novu subscriber verification documented above.
+- **Appointment triggers:** booking + status workflows, env vars, and payload keys documented above.
 

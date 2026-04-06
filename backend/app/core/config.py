@@ -36,6 +36,13 @@ class Settings(BaseSettings):
             "Maps to NOVU_APPOINTMENT_WORKFLOW_ID."
         ),
     )
+    novu_appointment_status_workflow_id: str = Field(
+        min_length=1,
+        description=(
+            "Novu workflow identifier when PATCH updates appointment status "
+            "(doctor notification). Maps to NOVU_APPOINTMENT_STATUS_WORKFLOW_ID."
+        ),
+    )
     persist_device_tokens_in_mongo: bool = Field(
         default=False,
         description=(

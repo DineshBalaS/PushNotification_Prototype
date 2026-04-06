@@ -6,6 +6,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from pymongo import ReturnDocument
 
+from app.core.config import settings
 from app.core.exceptions import AppException
 from app.core.logger import setup_logger
 from app.db.database import get_db
@@ -14,20 +15,11 @@ from app.models.schemas import (
     AppointmentCreateRequest,
     AppointmentStatusUpdateRequest,
 )
-from app.services.push_service import dispatch_fcm_notification
+from app.services.novu_triggers import trigger_novu_workflow
 
 logger = setup_logger()
 
 router = APIRouter(prefix="/api/v1/appointments", tags=["Appointments"])
-
-async def _resolve_device_tokens(
-    db: AsyncIOMotorDatabase, *, owner_type: str, owner_id: str
-) -> list[str]:
-    doc = await db.device_tokens.find_one(
-        {"owner_type": owner_type, "owner_id": owner_id}, {"fcm_tokens": 1}
-    )
-    tokens = doc.get("fcm_tokens", []) if doc else []
-    return [t for t in tokens if isinstance(t, str) and t]
 
 
 @router.post("/", status_code=201, response_model=AppointmentCreatedResponse)
@@ -39,14 +31,9 @@ async def create_appointment(
     """
     Webhook entry point for booking a new appointment.
 
-    Broadcast strategy:
-      - Validates the doctor exists.
-      - Inserts the appointment document with status PENDING.
-      - Resolves the doctor's device tokens via device_tokens registry.
-      - Resolves all Staff device tokens via device_tokens registry.
-      - Combines doctor + staff tokens, deduplicates, and filters empties.
-      - Enqueues one BackgroundTask per valid token so the 201 is returned immediately
-        and FCM dispatch happens entirely after the response is sent.
+    After insert, enqueues a single BackgroundTask that triggers the Novu workflow
+    (``NOVU_APPOINTMENT_WORKFLOW_ID``) for the doctor and all staff ``user_id``\ s
+    (Novu subscriberIds). Failures are logged only; HTTP 201 is unchanged.
     """
     try:
         doctor_oid = ObjectId(request.doctor_id)
@@ -57,8 +44,10 @@ async def create_appointment(
             status_code=400,
         )
 
-    # --- DB read 1: doctor existence + stable user_id (Novu subscriberId) ---
-    doctor = await db.doctor.find_one({"_id": doctor_oid}, {"_id": 1, "user_id": 1})
+    # --- DB read 1: doctor existence + stable user_id (Novu subscriberId) + display name ---
+    doctor = await db.doctor.find_one(
+        {"_id": doctor_oid}, {"_id": 1, "user_id": 1, "name": 1}
+    )
     if not doctor:
         raise AppException(
             detail="Doctor not found.",
@@ -107,46 +96,68 @@ async def create_appointment(
         doctor_user_id or "(null)",
     )
 
-    # --- DB read 2: resolve doctor device tokens (device_tokens registry) ---
-    doctor_tokens = await _resolve_device_tokens(
-        db, owner_type="doctor", owner_id=str(doctor_oid)
-    )
+    # --- Novu recipients: doctor + staff user_id (subscriberId), deduped ---
+    subscriber_recipients: list[str] = []
+    seen_subscribers: set[str] = set()
+    if doctor_user_id:
+        seen_subscribers.add(doctor_user_id)
+        subscriber_recipients.append(doctor_user_id)
+    else:
+        logger.warning(
+            "Novu trigger skipped for doctor — no user_id | appointment_id=%s",
+            appointment_id,
+        )
 
-    # --- DB read 3: resolve all staff device tokens (device_tokens registry) ---
-    staff_cursor = db.staff.find({}, {"_id": 1})
-    staff_tokens: list[str] = []
-    async for staff in staff_cursor:
-        staff_id = staff.get("_id")
-        if staff_id:
-            staff_tokens.extend(
-                await _resolve_device_tokens(db, owner_type="staff", owner_id=str(staff_id))
-            )
+    async for staff_row in db.staff.find({}, {"user_id": 1}):
+        raw_suid = staff_row.get("user_id")
+        if isinstance(raw_suid, str):
+            suid = raw_suid.strip()
+            if suid and suid not in seen_subscribers:
+                seen_subscribers.add(suid)
+                subscriber_recipients.append(suid)
 
-    # --- Build deduplicated broadcast list ---
-    # Use a set to prevent double-delivering if a staff member is also the doctor.
-    broadcast_tokens: list[str] = list({t for t in (doctor_tokens + staff_tokens) if t})
-
-    if broadcast_tokens:
-        notification_data = {
-            "appointment_id": appointment_id,
-            "patient_id": request.patient_id,
-            "status": "PENDING",
-        }
-        if doctor_user_id:
-            notification_data["doctor_user_id"] = doctor_user_id
-        for token in broadcast_tokens:
-            background_tasks.add_task(
-                dispatch_fcm_notification,
-                token=token,
-                title="New Appointment Request",
-                body=f"Patient {request.patient_id} has requested an appointment.",
-                data_payload=notification_data,
-            )
-        logger.info(
-            f"FCM broadcast queued | appointment={appointment_id} | recipients={len(broadcast_tokens)}"
+    # --- Patient display name for workflow payload (dashboard template variables) ---
+    patient_name = "Unknown"
+    try:
+        patient_oid = ObjectId(request.patient_id)
+    except InvalidId:
+        logger.warning(
+            "patient_id is not a valid ObjectId; using fallback patientName | appointment_id=%s",
+            appointment_id,
         )
     else:
-        logger.info(f"No FCM tokens found for appointment {appointment_id}; push skipped.")
+        patient_doc = await db.patient.find_one({"_id": patient_oid}, {"name": 1})
+        raw_name = patient_doc.get("name") if patient_doc else None
+        if isinstance(raw_name, str) and raw_name.strip():
+            patient_name = raw_name.strip()
+
+    novu_payload: dict = {
+        "patientName": patient_name,
+        "appointmentTime": request.appointment_time.isoformat(),
+        "appointmentId": appointment_id,
+    }
+    raw_doctor_name = doctor.get("name") if doctor else None
+    if isinstance(raw_doctor_name, str) and raw_doctor_name.strip():
+        novu_payload["doctorName"] = raw_doctor_name.strip()
+
+    if subscriber_recipients:
+        background_tasks.add_task(
+            trigger_novu_workflow,
+            workflow_id=settings.novu_appointment_workflow_id,
+            subscriber_ids=subscriber_recipients,
+            payload=novu_payload,
+            transaction_id=appointment_id,
+        )
+        logger.info(
+            "Novu appointment workflow queued | appointment_id=%s | recipients=%s",
+            appointment_id,
+            len(subscriber_recipients),
+        )
+    else:
+        logger.info(
+            "Novu appointment workflow skipped | appointment_id=%s | reason=no_subscriber_recipients",
+            appointment_id,
+        )
 
     return AppointmentCreatedResponse(
         status="success",
@@ -163,13 +174,9 @@ async def update_appointment_status(
     db: AsyncIOMotorDatabase = Depends(get_db),
 ):
     """
-    Atomically transitions an appointment to a new status and notifies the
-    assigned doctor via FCM if they have a registered device token.
-
-    Uses find_one_and_update with ReturnDocument.AFTER to retrieve the
-    updated document in a single atomic operation — no separate read required.
-    The doctor's device tokens are fetched via the device_tokens registry and
-    FCM dispatch is enqueued as BackgroundTasks so the 200 is returned first.
+    Atomically updates appointment status and notifies the assigned doctor via Novu
+    (``NOVU_APPOINTMENT_STATUS_WORKFLOW_ID``) when ``doctor_user_id`` is stored on
+    the appointment. Failures are logged only; HTTP 200 is unchanged.
     """
     try:
         appt_oid = ObjectId(appointment_id)
@@ -180,7 +187,6 @@ async def update_appointment_status(
             status_code=400,
         )
 
-    # --- Atomic update: returns the post-update document in one round trip ---
     updated_appointment = await db.appointments.find_one_and_update(
         {"_id": appt_oid},
         {"$set": {"status": request.status}},
@@ -196,49 +202,59 @@ async def update_appointment_status(
 
     doctor_id = updated_appointment["doctor_id"]
     logger.info(
-        f"Appointment {appointment_id} status updated to {request.status} | doctor={doctor_id}"
+        "Appointment %s status updated to %s | doctor=%s",
+        appointment_id,
+        request.status,
+        doctor_id,
     )
 
-    # --- DB read: doctor existence check ---
-    try:
-        doctor_oid = ObjectId(doctor_id)
-    except InvalidId:
-        logger.warning(f"Stored doctor_id '{doctor_id}' is not a valid ObjectId; FCM skipped.")
-        return {"status": "success", "message": f"Appointment status updated to {request.status}."}
-
-    doctor = await db.doctor.find_one({"_id": doctor_oid}, {"_id": 1})
-
-    if doctor:
-        doctor_tokens = await _resolve_device_tokens(
-            db, owner_type="doctor", owner_id=str(doctor_oid)
-        )
-        if doctor_tokens:
-            status_payload = {
-                "appointment_id": appointment_id,
-                "doctor_id": doctor_id,
-                "status": request.status,
-            }
-            doc_novu_id = updated_appointment.get("doctor_user_id")
-            if isinstance(doc_novu_id, str) and doc_novu_id.strip():
-                status_payload["doctor_user_id"] = doc_novu_id.strip()
-                logger.debug(
-                    "Status FCM payload includes doctor_user_id=%s...",
-                    doc_novu_id.strip()[:8],
-                )
-            for token in doctor_tokens:
-                background_tasks.add_task(
-                    dispatch_fcm_notification,
-                    token=token,
-                    title="Appointment Status Update",
-                    body=f"Your appointment has been updated to {request.status}.",
-                    data_payload=status_payload,
-                )
-            logger.info(
-                f"FCM alert queued for doctor {doctor_id} | status={request.status} | recipients={len(doctor_tokens)}"
-            )
-        else:
-            logger.info(f"Doctor {doctor_id} has no device_tokens; status alert skipped.")
+    doc_novu_id = updated_appointment.get("doctor_user_id")
+    subscriber_id: str | None = None
+    if isinstance(doc_novu_id, str) and doc_novu_id.strip():
+        subscriber_id = doc_novu_id.strip()
     else:
-        logger.info(f"Doctor {doctor_id} not found; status alert skipped.")
+        logger.warning(
+            "Novu status workflow skipped — no doctor_user_id on appointment | appointment_id=%s",
+            appointment_id,
+        )
+
+    if subscriber_id:
+        patient_name = "Unknown"
+        raw_pid = updated_appointment.get("patient_id")
+        if isinstance(raw_pid, str):
+            try:
+                patient_oid = ObjectId(raw_pid)
+            except InvalidId:
+                logger.debug(
+                    "Status notify: patient_id not ObjectId; using fallback name | appointment_id=%s",
+                    appointment_id,
+                )
+            else:
+                patient_doc = await db.patient.find_one({"_id": patient_oid}, {"name": 1})
+                raw_name = patient_doc.get("name") if patient_doc else None
+                if isinstance(raw_name, str) and raw_name.strip():
+                    patient_name = raw_name.strip()
+
+        status_payload: dict = {
+            "appointmentId": appointment_id,
+            "status": request.status,
+            "patientName": patient_name,
+            "doctorId": doctor_id,
+        }
+
+        tx_id = f"{appointment_id}:status:{request.status}"
+        background_tasks.add_task(
+            trigger_novu_workflow,
+            workflow_id=settings.novu_appointment_status_workflow_id,
+            subscriber_ids=[subscriber_id],
+            payload=status_payload,
+            transaction_id=tx_id,
+        )
+        logger.info(
+            "Novu status workflow queued | appointment_id=%s | status=%s | subscriber=%s",
+            appointment_id,
+            request.status,
+            subscriber_id[:8] + "…",
+        )
 
     return {"status": "success", "message": f"Appointment status updated to {request.status}."}

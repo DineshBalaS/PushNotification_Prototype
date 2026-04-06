@@ -24,6 +24,11 @@ def _novu_client() -> Novu:
     return Novu(**kwargs)
 
 
+def get_novu_client() -> Novu:
+    """Return the shared cached ``Novu`` instance (same config as subscriber sync)."""
+    return _novu_client()
+
+
 async def sync_subscriber_fcm_to_novu(
     *,
     user_id: str,

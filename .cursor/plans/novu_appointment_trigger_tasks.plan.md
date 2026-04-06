@@ -10,13 +10,13 @@ todos:
     status: completed
   - id: novu-trigger-service
     content: "Backend: app/services module — trigger_async wrapper, payload helpers, logging"
-    status: pending
+    status: completed
   - id: wire-create-appointment
     content: "appointments.py POST: Novu triggers for doctor + staff user_ids; remove create FCM loop"
-    status: pending
+    status: completed
   - id: optional-status-patch-novu
     content: "appointments.py PATCH status: optional second task — Novu trigger instead of FCM"
-    status: pending
+    status: completed
 isProject: false
 ---
 
