@@ -1,0 +1,36 @@
+# =============================================================================
+# Monorepo — secrets & credentials (never commit; GitHub Push Protection)
+# =============================================================================
+# Keep real keys in env vars, secret managers, or local-only paths — not in Git.
+
+# Environment files
+.env
+.env.*
+!.env.example
+!.env.local.example
+
+# Google Cloud / Firebase Admin SDK (service account JSON with private_key)
+**/firebase-service-account*.json
+**/*-firebase-adminsdk-*.json
+**/firebase-adminsdk*.json
+**/service-account*.json
+
+# GCP client credential store (gcloud auth application-default login)
+**/application_default_credentials.json
+
+# Ad-hoc credential dumps / local folders
+**/NovuPrivatekey
+**/NovuPrivatekey*
+Firebase(no Jinx)/
+
+# Private keys & SSH (not application source)
+*.pem
+*.key
+id_rsa
+id_ecdsa
+id_ed25519
+*-key.pem
+
+# Optional: local secrets directory pattern
+.secrets/
+**/local-secrets/

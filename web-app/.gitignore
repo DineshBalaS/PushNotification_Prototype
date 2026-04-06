@@ -23,6 +23,10 @@
 # misc
 .DS_Store
 *.pem
+*.key
+
+# Sentry / tooling env leaks (often created in project root)
+.env.sentry-build-plugin
 
 # debug
 npm-debug.log*

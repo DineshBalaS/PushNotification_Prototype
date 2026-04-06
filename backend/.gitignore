@@ -14,11 +14,15 @@ env/
 !.env.example
 
 # =========================
-# Firebase Credentials 
-# (CRITICAL: Do not commit your FCM JSON key!)
+# Firebase / GCP service account (Admin SDK — never commit)
+# Narrow patterns only; avoid broad *firebase*.json that might hide legit files.
 # =========================
 firebase-service-account.json
-*firebase*.json
+firebase-service-account*.json
+*-firebase-adminsdk-*.json
+firebase-adminsdk*.json
+service-account*.json
+application_default_credentials.json
 
 # =========================
 # Byte-compiled / Optimized files
